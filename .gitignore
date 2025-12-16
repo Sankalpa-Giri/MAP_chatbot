@@ -1,0 +1,14 @@
+text.text
+API keys/
+__pycache__
+Audio/
+Flowcharts/
+Helper Programs/
+Old programs/
+Voices/en_US-ryan-medium.onnx
+Voices/en_US-ryan-medium.onnx.json
+text.txt
+key.json
+fix_gpu.py
+.cache
+.spotify_cache_shift
