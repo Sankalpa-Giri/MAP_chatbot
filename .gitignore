@@ -12,3 +12,4 @@ key.json
 fix_gpu.py
 .cache
 .spotify_cache_shift
+embeddings data/

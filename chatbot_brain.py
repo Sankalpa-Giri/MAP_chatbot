@@ -1,40 +1,34 @@
-import random
-import os
-import google.generativeai as genai
 import maps_engine
 import weather_engine
 import spotify_music
 import connect_phone
+import driver_rag
 # ==========================================
 # 1. CONFIGURATION
 # ==========================================
-# 🔑 Get your FREE key here: https://aistudio.google.com/app/apikey
-# Paste it inside the quotes below
-api = open(r"API Keys\Gemini_api_key.txt","r")
-API_KEY = api.read()
-
-# Configure the Google AI library
-genai.configure(api_key=API_KEY)
-
-# Initialize the 'Flash' model (Fast & Free Tier) 
-# We use 'gemini-2.0-flash' specifically for speed and cost.
-model = genai.GenerativeModel('gemini-2.0-flash')
-
+'''There is no configuration, all the files related to llm has been moved to driver_rag.py'''
 # ==========================================
-# 2. THE GENERAL BRAIN (Gemini 2.0 Flash)
+# 2. THE GENERAL BRAIN (phi3:mini)
 # ==========================================
 def query_llm(user_text):
     """
-    Sends the user's text to Gemini Flash for a conversational reply.
+    Sends the user's text to Ollama Flash for a conversational reply.
     """
     try:
-        # We ask Gemini to be concise since it's a voice assistant
-        prompt = f"You are a helpful voice assistant. Keep your answer short and conversational (under 2 sentences). User said: {user_text}"
-        
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        # 1. Try to store memory
+        memory_resp = driver_rag.store_memory(user_text)
+        if memory_resp:
+            print("Assistant:", memory_resp)
+
+        # 2. Try to forget memory
+        forget_resp = driver_rag.delete_memory(user_text)
+        if forget_resp:
+            print(f"Assistant: {forget_resp}")
+
+        return driver_rag.ask_llm(user_text)
+    
     except Exception as e:
-        return f"I'm having trouble connecting to my brain. (Error: {e})"
+        return f"I'm having trouble connecting to my LLM. (Error: {e})"
 
 # ==========================================
 # 3. THE ROUTER (The Decision Maker)
@@ -56,6 +50,12 @@ def get_bot_response(nlu_result, original_text):
     elif intent == 'get_route_traffic':
         dest = nlu_result['destination']
         if dest:
+            #-----RAG check step-----
+            if dest.lower() in ["home","office","word","gym"]:
+                rag_address = driver_rag.query_chroma(f"What is my {dest} address?")
+                if "I don't know that yet." not in rag_address:
+                    dest = rag_address
+            #------------------------
             # 1. Decide Origin (For now, hardcode or use a default)
             # In a real app, you'd use GPS or ask the user "Where are you starting?"
             origin = "kiit campus 4" 
@@ -65,12 +65,8 @@ def get_bot_response(nlu_result, original_text):
             
             # 3. Generate Report
             traffic_report = maps_engine.generate_traffic_report(route_data)
-        
-            success = connect_phone.send_navigation_link(dest)
-            if success:
-                return f"{traffic_report}. I have also sent the directions to your phone for the drive."
-            else:
-                return traffic_report
+
+            return traffic_report
         else:
             return "I can check the traffic, but I need to know the destination."
 
@@ -78,7 +74,7 @@ def get_bot_response(nlu_result, original_text):
     elif intent == 'get_music':
         music_query = nlu_result.get('song')
         if music_query:
-            return spotify_music.play_music(music_query)
+            return spotify_music.play_music(music_query)  
         else:
             return "I could not find the song or the artist"
 

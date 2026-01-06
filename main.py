@@ -2,7 +2,6 @@ import sys
 import live_stt       # Ears
 import nlu_engine     # Logic
 import chatbot_brain  # Brain
-#import tts_engine     # Mouth
 import geocoder
 import wake_word_engine
 import piper_tts as tts_engine

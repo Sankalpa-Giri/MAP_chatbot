@@ -67,7 +67,7 @@ def get_route_details(origin, destination):
 
     except Exception as e:
         print(f"Maps Error: {e}")
-        return None
+        return "Cannot Find Route!"
 
 # ==========================================
 # 3. ANALYSIS LOGIC
