@@ -1,3 +1,5 @@
+venv/
+.venv/
 text.text
 API keys/
 __pycache__
