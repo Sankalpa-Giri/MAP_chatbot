@@ -60,13 +60,11 @@ def get_bot_response(nlu_result, original_text):
             # In a real app, you'd use GPS or ask the user "Where are you starting?"
             origin = "kiit campus 4" 
             
+            is_traffic_query = "traffic" in original_text.lower()
             # 2. Call Real Maps API
-            route_data = maps_engine.get_route_details(origin, dest)
-            
-            # 3. Generate Report
-            traffic_report = maps_engine.generate_traffic_report(route_data)
+            route_data = maps_engine.handle_assistant_command(origin, dest,is_traffic_query)
 
-            return traffic_report
+            return route_data
         else:
             return "I can check the traffic, but I need to know the destination."
 

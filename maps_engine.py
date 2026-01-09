@@ -1,106 +1,112 @@
 import googlemaps
-import os
 from datetime import datetime
 
 # ==========================================
 # 1. CONFIGURATION
 # ==========================================
-# We use the same key, but ensure "Directions API" and "Geocoding API" 
-# are ENABLED in your Google Cloud Console for this key.
-api = open(r"API Keys\Gemini_api_key.txt","r")
-API_KEY = api.read()
+try:
+    with open(r"API Keys\Gemini_api_key.txt", "r") as api_file:
+        API_KEY = api_file.read().strip()
+except FileNotFoundError:
+    print("Error: API Key file not found.")
+    API_KEY = None
 
-# Initialize the client
 gmaps = googlemaps.Client(key=API_KEY)
 
 # ==========================================
-# 2. HELPER FUNCTIONS
+# 2. THE ENGINE
 # ==========================================
 
-def get_route_details(origin, destination):
+def get_maps_data(origin, destination):
     """
-    Fetches real-time traffic and route data between two places.
+    Fetches raw route and traffic data. 
+    Returns a list of potential routes.
     """
     try:
-        print(f"🗺️ Maps: Calculating route from '{origin}' to '{destination}'...")
-        
-        # Request directions
-        # mode="driving": Standard car navigation
-        # departure_time="now": CRITICAL! This forces Google to consider current traffic.
-        directions = gmaps.directions(origin,destination,mode="driving",departure_time=datetime.now())
-
-        if not directions:
-            return None
-
-        # Extract the first (best) route
-        route = directions[0]
-        leg = route['legs'][0]
-
-        # Basic Data
-        summary = route['summary']  # e.g., "NH16" or "Nandan Kanan Rd"
-        distance = leg['distance']['text']
-        duration = leg['duration']['text']  # Normal time (without traffic)
-        
-        # Real-time Traffic Data
-        # 'duration_in_traffic' is only returned if departure_time is set
-        if 'duration_in_traffic' in leg:
-            duration_traffic = leg['duration_in_traffic']['text']
-            traffic_seconds = leg['duration_in_traffic']['value']
-            normal_seconds = leg['duration']['value']
-            
-            # Calculate Delay
-            delay_seconds = traffic_seconds - normal_seconds
-            delay_minutes = int(delay_seconds / 60)
-        else:
-            duration_traffic = duration
-            delay_minutes = 0
-
-        return {
-            "summary": summary,
-            "distance": distance,
-            "normal_duration": duration,
-            "traffic_duration": duration_traffic,
-            "delay_minutes": delay_minutes,
-            "start_address": leg['start_address'],
-            "end_address": leg['end_address']
-        }
-
+        # departure_time="now" is required for traffic data
+        # Allows suggesting other routes
+        directions = gmaps.directions(origin, destination, mode="driving", departure_time=datetime.now(), alternatives=True)
+        return directions
     except Exception as e:
-        print(f"Maps Error: {e}")
-        return "Cannot Find Route!"
+        print(f"Maps API Error: {e}")
+        return None
 
-# ==========================================
-# 3. ANALYSIS LOGIC
-# ==========================================
-
-def generate_traffic_report(route_data):
+def process_traffic_logic(directions):
     """
-    Converts raw data into a human-friendly string.
+    Analyses the raw data to determine congestion levels.
     """
-    if not route_data:
-        return "I couldn't find a route to that location. Please check the name."
+    if not directions:
+        return None
 
-    dest = route_data['end_address'].split(",")[0] # Shorten address
-    traffic_time = route_data['traffic_duration']
-    delay = route_data['delay_minutes']
-    route_name = route_data['summary']
-
-    # Logic to sound smart based on delay
-    if delay < 5:
-        traffic_condition = "Traffic is clear"
-        advice = "It's a smooth drive."
-    elif 5 <= delay < 15:
-        traffic_condition = "There is moderate traffic"
-        advice = f"Expect a {delay} minute delay."
+    # We look at the primary (first) route provided by Google
+    route = directions[0]
+    leg = route['legs'][0]
+    
+    # Calculate Congestion Index
+    normal_sec = leg['duration']['value']
+    traffic_sec = leg.get('duration_in_traffic', {}).get('value', normal_sec)
+    
+    # Ratio: 1.0 means clear, 1.5 means 50% slower than usual
+    congestion_ratio = traffic_sec / normal_sec
+    
+    if congestion_ratio <= 1.15:
+        status = "Clear"
+    elif 1.15 < congestion_ratio <= 1.4:
+        status = "Moderate"
     else:
-        traffic_condition = "Traffic is heavy"
-        advice = f"There is a significant delay of {delay} minutes. You might want to leave later."
+        status = "Heavy"
 
-    return (f"{traffic_condition} on the way to {dest} via {route_name}. "
-            f"The trip will take about {traffic_time}. {advice}")
+    return {
+        "summary": route['summary'],
+        "distance": leg['distance']['text'],
+        "duration": leg.get('duration_in_traffic', {}).get('text', leg['duration']['text']),
+        "congestion": status,
+        "delay_mins": int((traffic_sec - normal_sec) / 60),
+        "destination": leg['end_address'].split(',')[0]
+    }
 
-# --- TEST ---
+# ==========================================
+# 3. CONVERSATIONAL INTERFACE
+# ==========================================
+
+def handle_assistant_command(origin, destination, is_traffic_query=False):
+    """
+    The main interface for your Chatbot.
+    """
+    raw_data = get_maps_data(origin, destination)
+    analysis = process_traffic_logic(raw_data)
+
+    if not analysis:
+        return "I'm sorry, I couldn't find any route information for that location."
+
+    # FEATURE 1: "Drive me to..." (Direct Navigation)
+    if not is_traffic_query:
+        return (f"Navigating to {analysis['destination']} via {analysis['summary']}. "
+                f"It is {analysis['distance']} away and will take {analysis['duration']}.")
+
+    # FEATURE 2: "How is the traffic..." (Traffic Status)
+    if is_traffic_query:
+        # If there's an alternative route, we mention it
+        alt_text = ""
+        if len(raw_data) > 1:
+            alt_route = raw_data[1]['summary']
+            alt_text = f" You might consider taking {alt_route} instead."
+
+        if analysis['congestion'] == "Clear":
+            return f"Traffic is clear on {analysis['summary']}. You should reach in {analysis['duration']}."
+        else:
+            return (f"There is {analysis['congestion']} traffic on {analysis['summary']}. "
+                    f"Expect a {analysis['delay_mins']} minute delay.{alt_text}")
+
+# ==========================================
+# 4. EXECUTION EXAMPLES
+# ==========================================
 if __name__ == "__main__":
-    # Test with a known route (e.g., Bhubaneswar to Cuttack)
-    data = get_route_details("Master Canteen, Bhubaneswar", "KIIT University, Patia")
-    print(generate_traffic_report(data))
+    # Example 1: Navigation
+    print("--- User: 'Drive me to Jaydev Vihar' ---")
+    print("Assistant:", handle_assistant_command("KIIT Campus 4", "Jaydev Vihar", is_traffic_query=False))
+
+    # Example 2: Traffic Status
+    print("\n--- User: 'How is the traffic in KIIT road?' ---")
+    # We query from the road's start to its end to check congestion
+    print("Assistant:", handle_assistant_command("KIIT Campus 4", "Jaydev Vihar road", is_traffic_query=True))
