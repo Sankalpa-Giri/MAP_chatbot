@@ -23,7 +23,7 @@ def wait_for_wake_word():
     # Initialize Porcupine with a built-in keyword
     porcupine = pvporcupine.create(access_key=ACCESS_KEY, 
                                    keyword_paths=[keyword_path], 
-                                   sensitivities=[0.85])
+                                   sensitivities=[0.80])
 
     recorder = PvRecorder(device_index=0, frame_length=porcupine.frame_length)
 

@@ -24,8 +24,6 @@ def load_piper_model():
         
         #print("⏳ Loading Piper Model...")
         try:
-            # We try to use GPU (use_cuda=True). If you haven't installed onnxruntime-gpu, 
-            # it might fallback or warn, but it should still load.
             _voice = PiperVoice.load(MODEL_PATH, config_path=CONFIG_PATH)
             print("✅ Piper Loaded Successfully")
         except Exception as e:

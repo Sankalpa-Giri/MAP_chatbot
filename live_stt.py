@@ -66,7 +66,7 @@ def start_listening(callback_function):
     """
     Starts the microphone loop with Indian English & Phrase Hints.
     """
-    print(f"--- Ears Active (Indian Mode | {SAMPLE_RATE} Hz) ---")
+    print(f"--- Microphone Active (Indian Mode | {SAMPLE_RATE} Hz) ---")
     
     client = speech.SpeechClient()
     
