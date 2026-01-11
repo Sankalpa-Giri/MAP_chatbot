@@ -1,23 +1,33 @@
 import queue
 import sys
 import os
+from pathlib import Path
 import pyaudio
 from google.cloud import speech
 from vocabulary import MASTER_PHRASE_HINTS
-# Configuration
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = r"D:\SG Resources\Python speech transcriber\key.json"
+
+# ==========================================
+# CONFIGURATION - Use relative paths
+# ==========================================
+BASE_DIR = Path(__file__).resolve().parent
+CREDENTIALS_PATH = BASE_DIR / "API_Keys" / "key.json"
+
+# Set Google Cloud credentials
+if CREDENTIALS_PATH.exists():
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(CREDENTIALS_PATH)
+    print(f"✅ Google credentials loaded from: {CREDENTIALS_PATH}")
+else:
+    print(f"❌ ERROR: Google credentials not found at: {CREDENTIALS_PATH}")
+    print("Please ensure key.json is in the API_Keys folder")
+
 SAMPLE_RATE = 16000
 CHUNK_SIZE = int(SAMPLE_RATE / 10)
 
 # ==========================================
-# 🚀 BOOSTING ACCURACY FOR INDIAN PLACES
+# MICROPHONE STREAM
 # ==========================================
-# Add hard-to-recognize local names here.
-# Google will now prioritize these words when it hears something similar.
-#MASTER_PHRASE_HINTS
-
 class MicrophoneStream:
-    """Microphone stream generator (Standard Boilerplate)"""
+    """Microphone stream generator"""
     def __init__(self, rate, chunk):
         self._rate = rate
         self._chunk = chunk
@@ -51,72 +61,110 @@ class MicrophoneStream:
     def generator(self):
         while not self.closed:
             chunk = self._buff.get()
-            if chunk is None: return
+            if chunk is None: 
+                return
             data = [chunk]
             while True:
                 try:
                     chunk = self._buff.get(block=False)
-                    if chunk is None: return
+                    if chunk is None: 
+                        return
                     data.append(chunk)
                 except queue.Empty:
                     break
             yield b"".join(data)
 
+# ==========================================
+# SPEECH RECOGNITION
+# ==========================================
 def start_listening(callback_function):
     """
     Starts the microphone loop with Indian English & Phrase Hints.
     """
-    print(f"--- Microphone Active (Indian Mode | {SAMPLE_RATE} Hz) ---")
+    # Check if credentials are set
+    if not CREDENTIALS_PATH.exists():
+        print("❌ Cannot start listening: Google credentials missing!")
+        raise FileNotFoundError(f"key.json not found at {CREDENTIALS_PATH}")
     
-    client = speech.SpeechClient()
+    print(f"--- 🎤 Microphone Active (Indian Mode | {SAMPLE_RATE} Hz) ---")
     
-    # 1. Prepare the Phrase Hints object
+    try:
+        client = speech.SpeechClient()
+    except Exception as e:
+        print(f"❌ Failed to create Google Speech client: {e}")
+        print("Make sure your key.json is valid and has the Speech-to-Text API enabled")
+        raise
+    
+    # Prepare the Phrase Hints
     speech_contexts = [speech.SpeechContext(phrases=MASTER_PHRASE_HINTS)]
 
     config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
         sample_rate_hertz=SAMPLE_RATE,
-        
-        # CHANGE 1: Indian English
-        language_code="en-IN", 
-        
-        # CHANGE 2: Add the hints
+        language_code="en-IN",  # Indian English
         speech_contexts=speech_contexts,
-        
-        # CHANGE 3: Use the 'command_and_search' model
-        # This model is specifically better for short queries like maps/navigation
-        model="command_and_search"
+        model="command_and_search"  # Better for navigation/commands
     )
     
-    streaming_config = speech.StreamingRecognitionConfig(config=config, interim_results=True)
+    streaming_config = speech.StreamingRecognitionConfig(
+        config=config, 
+        interim_results=True
+    )
 
     with MicrophoneStream(SAMPLE_RATE, CHUNK_SIZE) as stream:
         audio_generator = stream.generator()
-        requests = (speech.StreamingRecognizeRequest(audio_content=content) for content in audio_generator)
+        requests = (
+            speech.StreamingRecognizeRequest(audio_content=content) 
+            for content in audio_generator
+        )
         
         try:
             responses = client.streaming_recognize(streaming_config, requests)
 
             for response in responses:
-                if not response.results: continue
+                if not response.results: 
+                    continue
+                    
                 result = response.results[0]
-                if not result.alternatives: continue
+                if not result.alternatives: 
+                    continue
 
                 transcript = result.alternatives[0].transcript
 
                 if result.is_final:
+                    print(f"\n✅ Recognized: {transcript}")
                     callback_function(transcript)
+                    
                     if "terminate the program" in transcript.lower():
                         return
                 else:
-                    sys.stdout.write(f"\rListening: {transcript}...")
+                    # Show interim results
+                    sys.stdout.write(f"\r🎤 Listening: {transcript}...")
                     sys.stdout.flush()
 
-        # --- FIX STARTS HERE ---
-        # If main.py says "StopIteration", we just return silently (No error print)
         except StopIteration:
+            # Normal exit when command processed
             return 
-        # --- FIX ENDS HERE ---
-
         except Exception as e:
-            print(f"\nError during recognition: {e}")
+            print(f"\n❌ Error during recognition: {e}")
+            raise
+
+# ==========================================
+# TEST
+# ==========================================
+if __name__ == "__main__":
+    print("Testing Google Speech Recognition...")
+    print(f"Credentials path: {CREDENTIALS_PATH}")
+    print(f"Exists: {CREDENTIALS_PATH.exists()}")
+    
+    if CREDENTIALS_PATH.exists():
+        print("\nSpeak something after the beep...")
+        
+        def test_callback(text):
+            print(f"\nYou said: {text}")
+            raise StopIteration
+        
+        try:
+            start_listening(test_callback)
+        except Exception as e:
+            print(f"Test failed: {e}")
