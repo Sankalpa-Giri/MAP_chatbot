@@ -4,7 +4,7 @@ import spotify_music
 import connect_phone
 import driver_rag
 # ==========================================
-# 1. CONFIGURATION
+# CONFIGURATION
 # ==========================================
 '''There is no configuration, all the files related to llm has been moved to driver_rag.py'''
 # ==========================================
@@ -31,22 +31,28 @@ def query_llm(user_text):
         return f"I'm having trouble connecting to my LLM. (Error: {e})"
 
 # ==========================================
-# 3. THE ROUTER (The Decision Maker)
+# MAIN RESPONSE ROUTER
 # ==========================================
 def get_bot_response(nlu_result, original_text):
+    """
+    Main response handler for all intents
+    
+    Args:
+        nlu_result: Dict from nlu_engine_control()
+        original_text: Original user speech
+    
+    Returns:
+        String response to speak
+    """
     intent = nlu_result['intent']
     
-    # --- PATH A: WEATHER ---
+    # --- WEATHER ---
     if intent == 'get_weather':
-        location = nlu_result.get('location')
-        if location:
-            print(f"DEBUG: Checking weather for {location}")
-            return weather_engine.get_weather_report(location)
-        else:
-            # If no city heard, assume current city or ask Gemini
-            return weather_engine.get_weather_report("Bhubaneswar")
-
-    # --- PATH B: TRAFFIC ---
+        location = nlu_result.get('location', 'Bhubaneswar')
+        print(f"DEBUG: Weather request for {location}")
+        return weather_engine.get_weather_report(location)
+    
+    # --- TRAFFIC ---
     elif intent == 'get_route_traffic':
         dest = nlu_result['destination']
         if dest:
@@ -74,16 +80,33 @@ def get_bot_response(nlu_result, original_text):
         if music_query:
             return spotify_music.play_music(music_query)  
         else:
-            return "I could not find the song or the artist"
-
-    # --- PATH D: FIND PHONE ---
+            return "I couldn't identify which song you want to play. Could you repeat that?"
+    
+    # --- PHONE ---
     elif intent == "find_phone":
         return connect_phone.find_my_phone()
     
-    # --- PATH E: OPEN MAPS APP ---
-
-
+    # --- CONVERSATION ---
     else:
-        # Gemini Logic
         return query_llm(original_text)
+
+# ==========================================
+# TEST ZONE
+# ==========================================
+if __name__ == "__main__":
+    print("=" * 60)
+    print("CHATBOT BRAIN TEST")
+    print("=" * 60)
     
+    # Test cases
+    test_cases = [
+        {"intent": "get_weather", "location": "Cuttack"},
+        {"intent": "get_route_traffic", "origin": "Master Canteen", "destination": "KIIT"},
+        {"intent": "get_route_traffic", "origin": None, "destination": "Patia"},
+        {"intent": "get_music", "song": "tum hi ho"},
+        {"intent": "unknown", "text": "hello"}
+    ]
+    
+    for i, test_nlu in enumerate(test_cases, 1):
+        print(f"\nTest {i}: {test_nlu}")
+        print("-" * 60)
