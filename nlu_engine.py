@@ -1,147 +1,120 @@
 import spacy
-from vocabulary import TRAFFIC_TRIGGERS, WEATHER_TRIGGERS, MUSIC_TRIGGERS, PHONE_TRIGGERS
+from vocabulary import (
+    TRAFFIC_TRIGGERS,
+    WEATHER_TRIGGERS,
+    MUSIC_TRIGGERS,
+    PHONE_TRIGGERS
+)
 
-# Load the AI brain
 nlp = spacy.load("en_core_web_sm")
 
+
 # ==========================================
-# 1. TRIGGER CHECKS (The Filters)
+# 1. TRIGGER CHECKS
 # ==========================================
-def is_traffic_request(text):
+
+def _contains_any(text, triggers):
     text = text.lower()
-    for word in TRAFFIC_TRIGGERS:
-        if word in text:
-            return True
-    return False
+    return any(word in text for word in triggers)
+
+
+def is_traffic_request(text):
+    return _contains_any(text, TRAFFIC_TRIGGERS)
+
 
 def is_weather_request(text):
-    text = text.lower()
-    for word in WEATHER_TRIGGERS:
-        if word in text:
-            return True
-    return False
+    return _contains_any(text, WEATHER_TRIGGERS)
+
 
 def is_music_request(text):
-    text = text.lower()
-    for word in MUSIC_TRIGGERS:
-        if word in text:
-            return True
-    return False
+    return _contains_any(text, MUSIC_TRIGGERS)
+
 
 def is_phone_request(text):
-    text = text.lower()
-    for word in PHONE_TRIGGERS:
-        if word in text:
-            return True
-    return False
+    return _contains_any(text, PHONE_TRIGGERS)
+
 
 # ==========================================
-# 2. WORDS EXTRACTION (The Search)
+# 2. ENTITY EXTRACTION
 # ==========================================
 
 def extract_location(text, intent_type):
-    """
-    Tries to find a location using AI (spaCy). 
-    If that fails, it uses a manual fallback based on the intent.
-    """
-    # A. Manual Fallback
     text_lower = text.lower()
-    
-    # If looking for weather, we usually say "Weather IN [City]"
-    if intent_type == "weather":
-        if " in " in text_lower:
-            return text_lower.split(" in ", 1)[1].strip(" .?!")
 
-    # If looking for traffic, we usually say "Go TO [City]"
-    
-    if intent_type == "traffic":
-        if " to " in text_lower:
-            # We use split to safely get everything AFTER the word "to"
-            return text_lower.split(" to ", 1)[1].strip(" .?!")
-            
+    if intent_type == "weather" and " in " in text_lower:
+        return text_lower.split(" in ", 1)[1].strip(" .?!")
+
+    if intent_type == "traffic" and " to " in text_lower:
+        return text_lower.split(" to ", 1)[1].strip(" .?!")
 
     doc = nlp(text)
-    # B. Try AI Second (It's smartest)
     for ent in doc.ents:
-        if ent.label_ in ["GPE", "LOC", "FAC"]:
-            return ent.text    
-    
+        if ent.label_ in ("GPE", "LOC", "FAC"):
+            return ent.text
+
     return None
+
 
 def extract_song_name(text):
-    """Extraxt the song name based on the keywords play and listen to"""
-    text = text.lower()
-    triggers = ["play", "listen to"]
-    for t in triggers:
-        if t in text:
-            return text.split(t)[1].strip(" .")
+    text_lower = text.lower()
+    for trigger in ("play", "listen to"):
+        if trigger in text_lower:
+            return text_lower.split(trigger, 1)[1].strip(" .?!")
     return None
+
+
 # ==========================================
-# 3. MAIN CONTROLLER (The Brain)
+# 3. MAIN NLU CONTROLLER
 # ==========================================
 
-def nlu_engine_control(text):
-    
-    # --- PATH A: WEATHER ---
+def nlu_engine_control(text: str) -> dict:
+    assumptions = []
+
+    # -------- WEATHER --------
     if is_weather_request(text):
-        # We tell the extractor to look for weather context (like "in")
-        loc = extract_location(text, intent_type="weather")
-        
-        # Default to "Bhubaneswar" if no city is found in the sentence
-        if not loc:
-            print("DEBUG: No city found, defaulting to Bhubaneswar")
-            loc = "Bhubaneswar"
-            
-        return {"intent": "get_weather", "location": loc}
-    
-    # --- PATH B: TRAFFIC ---
+        location = extract_location(text, "weather")
+        if not location:
+            location = None
+            assumptions.append(f"default_location:{location}")
+
+        return {
+            "intent": "GET_WEATHER",
+            "entities": {"location": location},
+            "confidence": 0.85,
+            "assumptions": assumptions
+        }
+
+    # -------- TRAFFIC --------
     if is_traffic_request(text):
-        # We tell the extractor to look for traffic context (like "to")
-        dest = extract_location(text, intent_type="traffic")
-        
-        # If we still can't find a destination, we can't calculate traffic
-        if dest:
-            return {"intent": "get_route_traffic", "destination": dest}
-        else:
-            # We recognized the intent, but missing the entity
-            return {"intent": "get_route_traffic", "destination": None}
-    
-    # --- PATH C: TRAFFIC ---
+        destination = extract_location(text, "traffic")
+
+        return {
+            "intent": "GET_ROUTE_TRAFFIC",
+            "entities": {"destination": destination},
+            "confidence": 0.9 if destination else 0.6,
+            "assumptions": [] if destination else ["missing_destination"]
+        }
+
+    # -------- MUSIC --------
     if is_music_request(text):
         song = extract_song_name(text)
-        if song:
-            return {"intent": "get_music", "song": song}
-        else:
-            return {"intent": "unknown", "text": text}
-    
-    # --- PATH D: FIND PHONE ---
-    if is_phone_request(text):
-        text = text.lower()
-        if "find" in text or "locate" in text:
-            return {"intent": "find_phone"}
-        else:
-            return {"intent": "unknown"}
 
-    # --- PATH E: UNKNOWN ---
-    return {"intent": "unknown", "destination": None}
+        if song is None:
+            return {
 
-# ==========================================
-# 4. TEST ZONE
-# ==========================================
-if __name__ == "__main__":
-    print("-" * 30)
-    # Test Traffic (AI should catch 'Jaydev Vihar')
-    print(f"Test 1: {nlu_engine_control('Drive me to Jaydev Vihar.')}")
-    print("-" * 30)
+            }
 
-    # Test Weather (Fallback should catch 'Bhubaneshwar' via 'in')
-    print(f"Test 2: {nlu_engine_control('How is the weather in Bhubaneshwar')}")
-    print("-" * 30)
-    
-    # Test Music
-    print(f"Test 3: {nlu_engine_control('Play tum hi ho by arijit singh')}")
-    print("-" * 30)
+        return {
+            "intent": "GET_MUSIC",
+            "entities": {"song": song},
+            "confidence": 0.9 if song else 0.5,
+            "assumptions": [] if song else ["missing_song"]
+        }
 
-    # Test Phone Pushbullet
-    print(f"Test 4: {nlu_engine_control('locate my Phone')}")
-    print("-" * 30)
+    # -------- UNKNOWN --------
+    return {
+        "intent": "UNKNOWN",
+        "entities": {},
+        "confidence": 0.3,
+        "assumptions": []
+    }

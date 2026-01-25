@@ -14,7 +14,7 @@ ODISHA_LOCATIONS = [
     "Ananta Vasudeva Temple", "Kedar Gauri Temple",
     "Pathani Samanta Planetarium", "Ekamra Kanan Botanical Garden",
     "Nicco Park", "Regional Museum of Natural History",
-    "Kalinga Stadium", "Biju Patnaik Park (Forest Park)", "Nexus Esplanade", "Baleshwar", "Kalpana Square"
+    "Kalinga Stadium", "Biju Patnaik Park (Forest Park)", "Nexus Esplanade", "Baleshwar", "Kalpana Square", "Nayapalli", "KIIT"
 ]
 
 COMMON_COMMANDS = [
