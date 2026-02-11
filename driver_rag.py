@@ -3,135 +3,194 @@ import ollama
 import chromadb
 
 # ==========================================
-# 1. CLIENT SETUP
+# 1. MODEL CONFIG
 # ==========================================
 
-OLLAMA_MODEL = "phi3:mini"
+LLM_MODEL = "llama3.1:8b"
+EMBED_MODEL = "nomic-embed-text"
 
 ollama_client = ollama.Client()
-chroma_client = chromadb.PersistentClient(path="embeddings_data")
-#chroma_client.delete_collection(name = "driver_collection")
+
+# persistent memory
+chroma_client = chromadb.PersistentClient(path="driver_memory")
 collection = chroma_client.get_or_create_collection(name="driver_collection")
 
+# ==========================================
+# 2. EMBEDDING FUNCTION (USING NOMIC)
+# ==========================================
+
+def get_embedding(text: str):
+    response = ollama_client.embeddings(
+        model=EMBED_MODEL,
+        prompt=text
+    )
+    return response["embedding"]
 
 # ==========================================
-# 2. MEMORY OPERATIONS
+# 3. MEMORY STORE
 # ==========================================
 
-def store_memory(user_text: str) -> dict | None:
-    """
-    Stores memory if user intent starts with 'remember'.
-    """
-    words = user_text.strip().split()
-
-    if not words or words[0].lower() != "remember":
+def store_memory(user_text: str):
+    if not user_text.lower().startswith("remember"):
         return None
 
-    memory_text = " ".join(words[1:]).strip()
+    memory_text = user_text[len("remember"):].strip()
     if not memory_text:
         return {"error": "EMPTY_MEMORY"}
 
+    emb = get_embedding(memory_text)
+
     collection.add(
         ids=[str(uuid.uuid4())],
+        embeddings=[emb],
         documents=[memory_text],
-        metadatas=[{"source": "user_memory"}]
+        metadatas=[{"type": "memory"}]
     )
 
-    return {"status": "STORED", "content": memory_text}
+    return {"status": "MEMORY STORED", "content": memory_text}
 
+# ==========================================
+# 4. MEMORY DELETE
+# ==========================================
 
-def delete_memory(user_text: str) -> dict | None:
-    """
-    Deletes memory if user intent starts with 'delete'.
-    """
+def delete_memory(user_text: str):
     if not user_text.lower().startswith("delete"):
         return None
 
-    topic = user_text[6:].strip()
+    topic = user_text[len("delete"):].strip()
     if not topic:
-        return {"error": "NO_TOPIC_PROVIDED"}
+        return {"error": "NO_TOPIC"}
 
-    results = collection.query(query_texts=[topic], n_results=1)
+    emb = get_embedding(topic)
 
-    if not results.get("ids") or not results["ids"][0]:
-        return {"error": "MEMORY_NOT_FOUND"}
+    results = collection.query(
+        query_embeddings=[emb],
+        n_results=1
+    )
+
+    if not results["ids"] or not results["ids"][0]:
+        return {"error": "NOT FOUND"}
 
     collection.delete(ids=[results["ids"][0][0]])
-
     return {"status": "DELETED", "topic": topic}
 
+# ==========================================
+# 5. MEMORY RETRIEVE
+# ==========================================
 
-def retrieve_memory(query: str) -> str:
-    """
-    Retrieves relevant memory for a query.
-    """
+def retrieve_memory(query: str):
+    emb = get_embedding(query)
+
     results = collection.query(
-        query_texts=[query],
+        query_embeddings=[emb],
         n_results=3,
         include=["documents"]
     )
 
     docs = results.get("documents", [[]])[0]
     if not docs:
-        return "I don't know that yet."
+        return "No stored memory."
 
-    return "\n".join(f"- {doc}" for doc in docs)
-
-
-# ==========================================
-# 3. PROMPT BUILDER
-# ==========================================
-
-def build_prompt(query, context):
-    prompt = f"""You are a helpful Driver Voice Assistant. Your goal is to provide concise, accurate information to the driver.
-
-    RULES:
-    1. **Priority:** Always check the provided MEMORY first. If the answer is there, use it.
-    2. **Fallback:** If the MEMORY does not contain the answer, use your general knowledge to provide a helpful response.
-    3. **Safety:** Do not make up personal facts about the user that are not in memory.
-    4. **Style:** Keep the answer to ONE short sentence. No code, no analysis, no extra explanations.
-    5. For personal details about the user (like name, home, or preferences), only answer if found in MEMORY and reply with 'I don't know that yet' if not in the memory. For general facts, use your own knowledge.
-
-    MEMORY: 
-    {context}
-
-    QUESTION: 
-    {query}
-
-    FINAL ANSWER:"""
-
-
-
+    return "\n".join(docs)
 
 # ==========================================
-# 4. LLM QUERY
+# 6. PROMPT BUILDER
 # ==========================================
 
-def ask_llm(user_query: str) -> dict:
-    """
-    Queries the LLM with RAG context.
-    """
+def build_prompt(user_query, memory_context):
+
+    return f"""
+You are DriverAI — an intelligent in-car driver assistant.
+
+PERSONALITY:
+- Smart
+- Helpful
+- Calm
+- Speak naturally
+- Never say you are built by Microsoft or any company
+- Never mention being an AI model unless asked
+
+MEMORY (Highest Priority):
+{memory_context}
+
+RULES:
+1. If answer exists in MEMORY → use it
+2. If not → answer normally using knowledge
+3. For personal info not in memory → say "I don't know that yet"
+4. Keep answers concise (max 2 lines)
+5. Act like a real car assistant
+
+USER QUESTION:
+{user_query}
+
+ASSISTANT:
+"""
+
+# ==========================================
+# 7. ASK LLM
+# ==========================================
+
+def ask_llm(user_query: str):
+
+    # store memory
+    mem_store = store_memory(user_query)
+    if mem_store:
+        return mem_store
+
+    # delete memory
+    mem_delete = delete_memory(user_query)
+    if mem_delete:
+        return mem_delete
+
+    # retrieve memory
     context = retrieve_memory(user_query)
+
     prompt = build_prompt(user_query, context)
 
     try:
         response = ollama_client.chat(
-            model=OLLAMA_MODEL,
+            model=LLM_MODEL,
             messages=[
-                {"role": "system", "content": "You are a concise assistant."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "You are DriverAI, a smart in-car assistant."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
-            options={"temperature": 0},
-            keep_alive=300
+            options={
+                "temperature": 0.4,
+                "top_p": 0.9,
+                "num_ctx": 4096
+            }
         )
 
+        reply = response["message"]["content"].strip()
+
         return {
-            "reply": response["message"]["content"],
-            "used_memory": context != "I don't know that yet."
+            "reply": reply,
+            "memory_used": context != "No stored memory."
         }
 
     except Exception as e:
         return {
-            "error": "LLM_ERROR",
-            "details": str(e)
+            "error": str(e)
         }
+
+# ==========================================
+# 8. TERMINAL CHAT LOOP (TEST)
+# ==========================================
+
+if __name__ == "__main__":
+    print("🚗 Driver AI Assistant Started (type 'exit' to quit)\n")
+
+    while True:
+        q = input("You: ")
+
+        if q.lower() == "exit":
+            break
+
+        result = ask_llm(q)
+        print("AI:", result)
