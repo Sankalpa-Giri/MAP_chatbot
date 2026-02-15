@@ -1,112 +1,124 @@
 import maps_engine
-import weather_engine
-import spotify_music
-import connect_phone
 import driver_rag
-# ==========================================
-# CONFIGURATION
-# ==========================================
-'''There is no configuration, all the files related to llm has been moved to driver_rag.py'''
-# ==========================================
-# 2. THE GENERAL BRAIN (phi3:mini)
-# ==========================================
-def query_llm(user_text):
-    """
-    Sends the user's text to Ollama Flash for a conversational reply.
-    """
-    try:
-        # 1. Try to store memory
-        memory_resp = driver_rag.store_memory(user_text)
-        if memory_resp:
-            print("Assistant:", memory_resp)
 
-        # 2. Try to forget memory
-        forget_resp = driver_rag.delete_memory(user_text)
-        if forget_resp:
-            print(f"Assistant: {forget_resp}")
+context = {
+    "last_destination": None,
+    "history": []
+}
 
-        return driver_rag.ask_llm(user_text)
-    
-    except Exception as e:
-        return f"I'm having trouble connecting to my LLM. (Error: {e})"
-
-# ==========================================
-# MAIN RESPONSE ROUTER
-# ==========================================
-def get_bot_response(nlu_result, original_text):
+def get_bot_response(nlu_result: dict, original_text: str, current_location=None) -> str:
     """
-    Main response handler for all intents
-    
-    Args:
-        nlu_result: Dict from nlu_engine_control()
-        original_text: Original user speech
-    
-    Returns:
-        String response to speak
+    TRAFFIC-FIRST BOT with robust error handling
     """
-    intent = nlu_result['intent']
+    global context
     
-    # --- WEATHER ---
-    if intent == 'get_weather':
-        location = nlu_result.get('location', 'Bhubaneswar')
-        print(f"DEBUG: Weather request for {location}")
-        return weather_engine.get_weather_report(location)
+    intent = nlu_result.get("intent", "unknown")
     
-    # --- TRAFFIC ---
-    elif intent == 'get_route_traffic':
-        dest = nlu_result['destination']
-        if dest:
-            #-----RAG check step-----
-            if dest.lower() in ["home","office","word","gym"]:
-                rag_address = driver_rag.query_chroma(f"What is my {dest} address?")
-                if "I don't know that yet." not in rag_address:
-                    dest = rag_address
-            #------------------------
-            # 1. Decide Origin (For now, hardcode or use a default)
-            # In a real app, you'd use GPS or ask the user "Where are you starting?"
-            origin = "kiit campus 4" 
+    # Stop command
+    if intent == "stop":
+        return "stop_now"
+    
+    # TRAFFIC/ROUTE REQUEST
+    if intent == "get_route_traffic":
+        destination = nlu_result.get("destination")
+        wants_directions = nlu_result.get("wants_directions", False)
+        
+        print(f"📍 Destination: {destination}, Directions: {wants_directions}")
+        
+        # Handle follow-up references
+        if not destination or destination.lower() in ["there", "it", "that"]:
+            destination = context["last_destination"]
+            if not destination:
+                return "Where would you like to go?"
+        
+        # Resolve saved locations
+        if destination and destination.lower() in ["home", "office", "gym", "work"]:
+            saved = driver_rag.retrieve_context(f"{destination}")
             
-            is_traffic_query = "traffic" in original_text.lower()
-            # 2. Call Real Maps API
-            route_data = maps_engine.handle_assistant_command(origin, dest,is_traffic_query)
-
-            return route_data
+            if saved and "no memory" not in saved.lower():
+                found_address = None
+                
+                for line in saved.split('\n'):
+                    line = line.strip('- ').strip()
+                    
+                    if "is at" in line.lower():
+                        parts = line.lower().split("is at")
+                        if len(parts) > 1:
+                            found_address = parts[-1].strip()
+                    elif ":" in line:
+                        parts = line.split(":")
+                        if len(parts) > 1:
+                            found_address = parts[-1].strip()
+                    else:
+                        if destination.lower() not in line.lower() or len(line.split()) > 2:
+                            found_address = line
+                
+                if found_address:
+                    found_address = found_address.replace("my", "").strip()
+                    found_address = found_address.replace(destination.lower(), "").strip()
+                    
+                    if len(found_address) > 2:
+                        destination = found_address.title()
+                        print(f"✅ Using saved: {destination}")
+                    else:
+                        return f"The address for {destination} seems incomplete."
+                else:
+                    return f"I couldn't find the address for {destination}."
+            else:
+                return f"I don't have your {destination} saved. Say 'remember my {destination} is at' followed by the address."
+        
+        # Validate destination exists
+        if not destination or len(destination.strip()) < 2:
+            return "I didn't catch where you want to go. Can you repeat the destination?"
+        
+        # Get route with traffic
+        route = maps_engine.get_route_data("KIIT Campus 4", destination, get_steps=wants_directions)
+        
+        # Handle errors
+        if "error" in route:
+            if route.get("message"):
+                return route["message"]
+            return f"I couldn't find a route to {destination}. Can you try saying it differently?"
+        
+        # Save for follow-ups
+        context["last_destination"] = destination
+        
+        # BUILD RESPONSE
+        if wants_directions and "steps" in route and len(route["steps"]) > 0:
+            # Directions mode
+            reply = f"To get to {route['destination']}: {route['steps'][0]}. "
+            if len(route["steps"]) > 1:
+                reply += f"Then {route['steps'][1]}. "
+            reply += f"Total distance is {route['distance']}, takes {route['duration']}. "
+            reply += f"{route['traffic_desc']}."
         else:
-            return "I can check the traffic, but I need to know the destination."
-
-    # --- PATH C: MUSIC ---
-    elif intent == 'get_music':
-        music_query = nlu_result.get('song')
-        if music_query:
-            return spotify_music.play_music(music_query)  
-        else:
-            return "I couldn't identify which song you want to play. Could you repeat that?"
+            # Traffic summary mode (DEFAULT)
+            reply = f"{route['destination']} is {route['distance']} away. "
+            reply += f"It will take {route['duration']} via {route['route_name']}. "
+            reply += f"{route['traffic_desc']}."
+        
+        context["history"].append(f"Route to {destination}")
+        return reply
     
-    # --- PHONE ---
-    elif intent == "find_phone":
-        return connect_phone.find_my_phone()
-    
-    # --- CONVERSATION ---
+    # MEMORY OPERATIONS
     else:
-        return query_llm(original_text)
+        memory_resp = driver_rag.handle_memory_ops(original_text)
+        if memory_resp:
+            context["history"].append(f"Memory: {original_text}")
+            return memory_resp
+        
+        # GENERAL CONVERSATION
+        try:
+            reply = driver_rag.ask_llm(original_text, context["history"])
+            context["history"].append(reply)
+            if len(context["history"]) > 5:
+                context["history"].pop(0)
+            return reply
+        except Exception as e:
+            print(f"⚠️ LLM error: {e}")
+            return "I'm not sure about that. I'm best at helping with traffic and directions in Bhubaneswar."
 
-# ==========================================
-# TEST ZONE
-# ==========================================
-if __name__ == "__main__":
-    print("=" * 60)
-    print("CHATBOT BRAIN TEST")
-    print("=" * 60)
-    
-    # Test cases
-    test_cases = [
-        {"intent": "get_weather", "location": "Cuttack"},
-        {"intent": "get_route_traffic", "origin": "Master Canteen", "destination": "KIIT"},
-        {"intent": "get_route_traffic", "origin": None, "destination": "Patia"},
-        {"intent": "get_music", "song": "tum hi ho"},
-        {"intent": "unknown", "text": "hello"}
-    ]
-    
-    for i, test_nlu in enumerate(test_cases, 1):
-        print(f"\nTest {i}: {test_nlu}")
-        print("-" * 60)
+def clear_context():
+    """Reset conversation context"""
+    global context
+    context = {"last_destination": None, "history": []}

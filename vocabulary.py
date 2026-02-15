@@ -3,7 +3,7 @@
 # You can organize them by category to keep it readable
 ODISHA_LOCATIONS = [
     "Patia", "Bhubaneswar", "Cuttack", "Puri", "KIIT", "Odisha",
-    "Chandrasekharpur", "Jaydev Vihar", "Master Canteen", "Rasulgarh",
+"KIIT Road","Kit Road",    "Chandrasekharpur", "Jaydev Vihar", "Master Canteen", "Rasulgarh",
     "Khandagiri", "Udayagiri", "Lingaraj Temple", "Nandan Kanan",
     "Infocity", "Trident", "Magnet Square", "Nandankanan Zoological Park",
     "Rajarani Temple", "Mukteswara Temple", "Parasurameswara Temple",

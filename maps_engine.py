@@ -1,257 +1,191 @@
 import googlemaps
 from datetime import datetime
 from pathlib import Path
+import re
+
+API_KEY_PATH = Path("API Keys/maps_key.txt")
+if not API_KEY_PATH.exists():
+    raise RuntimeError("Google Maps API key not found.")
+
+API_KEY = API_KEY_PATH.read_text().strip()
+gmaps = googlemaps.Client(key=API_KEY)
+
+# Bhubaneswar coordinates
+BHUBANESWAR_CENTER = {"lat": 20.2961, "lng": 85.8245}
 
 # ==========================================
-# CONFIGURATION - Cross-platform paths
-# ==========================================
-BASE_DIR = Path(__file__).resolve().parent
-API_KEYS_DIR = BASE_DIR / "API_Keys"
-API_KEYS_DIR.mkdir(exist_ok=True)
-
-# Try multiple key files (for flexibility)
-POSSIBLE_KEY_FILES = [
-    API_KEYS_DIR / "maps_api_key.txt",
-    API_KEYS_DIR / "Gemini_api_key.txt",  # Fallback to existing
-]
-
-API_KEY = None
-for key_file in POSSIBLE_KEY_FILES:
-    if key_file.exists():
-        with open(key_file, "r", encoding="utf-8") as f:
-            API_KEY = f.read().strip()
-        print(f"✅ Maps API key loaded from: {key_file.name}")
-        break
-
-if not API_KEY:
-    print(f"⚠️ No Maps API key found. Creating placeholder...")
-    with open(API_KEYS_DIR / "maps_api_key.txt", "w") as f:
-        f.write("YOUR_GOOGLE_MAPS_API_KEY_HERE")
-    raise ValueError(
-        f"Please add your Google Maps API key to: {API_KEYS_DIR / 'maps_api_key.txt'}\n"
-        "Get one at: https://console.cloud.google.com/google/maps-apis"
-    )
-
-# Initialize Google Maps client
-try:
-    gmaps = googlemaps.Client(key=API_KEY)
-    print("✅ Google Maps client initialized")
-except Exception as e:
-    print(f"❌ Failed to initialize Maps client: {e}")
-    raise
-
-# ==========================================
-# CORE FUNCTIONS
+# CLEAN NAME FOR TTS
 # ==========================================
 
-def get_route_details(origin, destination):
+def clean_name_for_tts(name: str) -> str:
+    """Remove non-English characters for better TTS"""
+    # Split by comma
+    parts = name.split(",")
+    
+    for part in parts:
+        part_clean = part.strip()
+        # Keep only English alphanumeric + common punctuation
+        if re.match(r'^[a-zA-Z0-9\s\-\'()&.]+$', part_clean):
+            return part_clean
+    
+    # Fallback
+    return name.split(",")[0].strip()
+
+# ==========================================
+# FIND PLACE (Bhubaneswar-centric)
+# ==========================================
+
+def find_place(query: str, prefer_bhubaneswar: bool = True) -> dict:
     """
-    Fetches real-time traffic and route data between two places.
-    
-    Args:
-        origin: Starting location (address or "lat,lng")
-        destination: End location (address or "lat,lng")
-    
-    Returns:
-        Dictionary with route information or None if failed
+    Find a place with Bhubaneswar bias
     """
     try:
-        print(f"🗺️  Calculating route: '{origin}' → '{destination}'...")
+        if prefer_bhubaneswar:
+            # Try with "Bhubaneswar" context first
+            search_query = f"{query}, Bhubaneswar, Odisha"
+            results = gmaps.geocode(search_query, region="in", language="en")
+            
+            if not results:
+                # Fallback without Bhubaneswar
+                results = gmaps.geocode(query, region="in", language="en")
+        else:
+            # General search (for places outside Bhubaneswar)
+            results = gmaps.geocode(query, region="in", language="en")
         
-        # Request directions with alternatives
+        if not results:
+            return None
+        
+        result = results[0]
+        location = result["geometry"]["location"]
+        
+        # Extract clean name
+        clean_place_name = None
+        
+        for component in result.get("address_components", []):
+            types = component["types"]
+            name = component["long_name"]
+            
+            # Look for actual place names
+            if any(t in types for t in ["point_of_interest", "establishment", "premise", "tourist_attraction"]):
+                # Skip Plus Codes
+                if not re.match(r'^[A-Z0-9]{4}\+[A-Z0-9]{2,}$', name):
+                    clean_place_name = name
+                    break
+        
+        # Fallback to formatted address
+        if not clean_place_name:
+            formatted = result["formatted_address"]
+            first_part = formatted.split(",")[0].strip()
+            
+            # Skip Plus Codes
+            if not re.match(r'^[A-Z0-9]{4}\+[A-Z0-9]{2,}', first_part):
+                clean_place_name = first_part
+            else:
+                # Use query as name
+                clean_place_name = query.title()
+        
+        print(f"✅ Found: {clean_name_for_tts(clean_place_name)}")
+        
+        return {
+            "coords": location,
+            "name": clean_name_for_tts(clean_place_name),
+            "full_address": result["formatted_address"]
+        }
+        
+    except Exception as e:
+        print(f"❌ Error finding '{query}': {e}")
+        return None
+
+# ==========================================
+# GET ROUTE DATA (Main Function)
+# ==========================================
+
+def get_route_data(origin: str, destination: str, get_steps: bool = False) -> dict:
+    """
+    Get route with traffic info (Bhubaneswar-centric)
+    """
+    try:
+        # Determine if destination is likely outside Bhubaneswar
+        dest_lower = destination.lower()
+        outside_odisha_keywords = [
+            "delhi", "mumbai", "bangalore", "kolkata", "chennai", "pune",
+            "hyderabad", "ahmedabad", "jaipur", "lucknow", "kanpur",
+            "agra", "taj mahal", "india gate", "gateway of india",
+            "connaught place", "marine drive"
+        ]
+        
+        prefer_bbsr = not any(keyword in dest_lower for keyword in outside_odisha_keywords)
+        
+        print(f"🔍 Searching for: {origin}")
+        origin_data = find_place(origin, prefer_bhubaneswar=True)
+        
+        print(f"🔍 Searching for: {destination}")
+        dest_data = find_place(destination, prefer_bhubaneswar=prefer_bbsr)
+        
+        if not origin_data:
+            return {"error": "ORIGIN_NOT_FOUND", "message": f"Could not find '{origin}'"}
+        if not dest_data:
+            return {"error": "DESTINATION_NOT_FOUND", "message": f"Could not find '{destination}'"}
+        
+        print(f"🗺️ Route: {origin_data['name']} → {dest_data['name']}")
+        
+        # Get directions with traffic
         directions = gmaps.directions(
-            origin,
-            destination,
+            origin=origin_data["coords"],
+            destination=dest_data["coords"],
             mode="driving",
-            departure_time=datetime.now(),  # Get real-time traffic
-            alternatives=True  # Get alternative routes
+            departure_time=datetime.now(),
+            alternatives=False,
+            traffic_model="best_guess"
         )
         
         if not directions:
-            print("❌ No routes found")
-            return None
+            return {"error": "NO_ROUTE_FOUND"}
         
-        # Extract the first (best) route
         route = directions[0]
-        leg = route['legs'][0]
+        leg = route["legs"][0]
         
-        # Basic route data
-        summary = route['summary']  # e.g., "NH16" or "Nandan Kanan Rd"
-        distance = leg['distance']['text']
-        duration = leg['duration']['text']
+        # TRAFFIC CALCULATION
+        normal_sec = leg["duration"]["value"]
+        traffic_sec = leg.get("duration_in_traffic", {}).get("value", normal_sec)
+        delay_mins = (traffic_sec - normal_sec) / 60
         
-        # Real-time traffic data
-        if 'duration_in_traffic' in leg:
-            duration_traffic = leg['duration_in_traffic']['text']
-            traffic_seconds = leg['duration_in_traffic']['value']
-            normal_seconds = leg['duration']['value']
-            delay_minutes = int((traffic_seconds - normal_seconds) / 60)
+        distance_km = leg["distance"]["value"] / 1000
+        hour = datetime.now().hour
+        is_peak = (9 <= hour <= 11) or (17 <= hour <= 20)
+        
+        # Traffic status
+        if delay_mins > 8:
+            traffic_msg = "Heavy traffic"
+        elif delay_mins > 3 or (is_peak and distance_km < 15):
+            traffic_msg = "Moderate traffic"
         else:
-            duration_traffic = duration
-            delay_minutes = 0
+            traffic_msg = "Traffic is light"
         
-        # Alternative routes
-        alternatives = []
-        if len(directions) > 1:
-            for alt_route in directions[1:3]:  # Up to 2 alternatives
-                alternatives.append({
-                    'name': alt_route['summary'],
-                    'duration': alt_route['legs'][0].get('duration_in_traffic', {}).get('text', 
-                                alt_route['legs'][0]['duration']['text'])
-                })
-        
-        return {
-            "summary": summary,
-            "distance": distance,
-            "normal_duration": duration,
-            "traffic_duration": duration_traffic,
-            "delay_minutes": delay_minutes,
-            "start_address": leg['start_address'],
-            "end_address": leg['end_address'],
-            "alternatives": alternatives
+        result = {
+            "origin": origin_data["name"],
+            "destination": dest_data["name"],
+            "route_name": route["summary"],
+            "distance": leg["distance"]["text"],
+            "duration": leg.get("duration_in_traffic", {}).get("text", leg["duration"]["text"]),
+            "traffic_desc": traffic_msg
         }
         
-    except googlemaps.exceptions.ApiError as e:
-        print(f"❌ Google Maps API Error: {e}")
-        return None
+        # Add turn-by-turn directions if requested
+        if get_steps:
+            steps = []
+            for i, step in enumerate(leg["steps"]):
+                if i >= 3:
+                    break
+                instruction = step["html_instructions"]
+                instruction = re.sub('<.*?>', '', instruction)
+                instruction = re.sub(r'&nbsp;', ' ', instruction)
+                instruction = ' '.join(instruction.split())
+                steps.append(instruction)
+            result["steps"] = steps
+        
+        return result
+        
     except Exception as e:
-        print(f"❌ Maps Error: {e}")
-        return None
-
-# ==========================================
-# RESPONSE GENERATION
-# ==========================================
-
-def generate_traffic_report(route_data):
-    """
-    Generates a natural language traffic report.
-    
-    Args:
-        route_data: Dictionary from get_route_details()
-    
-    Returns:
-        String with traffic status and advice
-    """
-    if not route_data:
-        return "I couldn't find a route to that location. Please check the name."
-    
-    dest = route_data['end_address'].split(",")[0]
-    traffic_time = route_data['traffic_duration']
-    delay = route_data['delay_minutes']
-    route_name = route_data['summary']
-    
-    # Determine traffic condition
-    if delay < 5:
-        traffic_condition = "Traffic is clear"
-        advice = "It's a smooth drive."
-    elif 5 <= delay < 15:
-        traffic_condition = "There is moderate traffic"
-        advice = f"Expect about a {delay} minute delay."
-    else:
-        traffic_condition = "Traffic is heavy"
-        advice = f"There's a significant delay of {delay} minutes."
-    
-    # Build response
-    response = (
-        f"{traffic_condition} on the way to {dest} via {route_name}. "
-        f"The trip will take about {traffic_time}. {advice}"
-    )
-    
-    # Add alternative route suggestion if available and traffic is bad
-    if delay > 10 and route_data['alternatives']:
-        alt = route_data['alternatives'][0]
-        response += f" You might want to consider {alt['name']}, which takes {alt['duration']}."
-    
-    return response
-
-def generate_navigation_response(route_data):
-    """
-    Generates a navigation response (not just traffic).
-    
-    Args:
-        route_data: Dictionary from get_route_details()
-    
-    Returns:
-        String with navigation instructions
-    """
-    if not route_data:
-        return "I couldn't find a route to that location. Please check the name."
-    
-    dest = route_data['end_address'].split(",")[0]
-    distance = route_data['distance']
-    duration = route_data['traffic_duration']
-    route_name = route_data['summary']
-    
-    return (
-        f"Navigating to {dest} via {route_name}. "
-        f"The distance is {distance} and it will take about {duration} with current traffic."
-    )
-
-# ==========================================
-# ASSISTANT COMMAND HANDLER (For chatbot_brain.py)
-# ==========================================
-
-def handle_assistant_command(origin=None, destination=None, is_traffic_query=False):
-    """
-    Main interface for the assistant (called by chatbot_brain.py)
-    
-    Args:
-        origin: Starting location (if None, uses default)
-        destination: End location
-        is_traffic_query: True for traffic status, False for navigation
-    
-    Returns:
-        String response for the assistant to speak
-    """
-    if not destination:
-        return "I need a destination to provide directions."
-    
-    # Use default origin if not provided
-    if not origin:
-        origin = "KIIT Campus 4, Bhubaneswar"
-        print(f"DEBUG: Using default origin: {origin}")
-    
-    # Get route data
-    route_data = get_route_details(origin, destination)
-    
-    # Generate appropriate response
-    if is_traffic_query:
-        return generate_traffic_report(route_data)
-    else:
-        return generate_navigation_response(route_data)
-
-# ==========================================
-# TEST
-# ==========================================
-if __name__ == "__main__":
-    print("="*60)
-    print("MAPS ENGINE TEST")
-    print("="*60)
-    
-    # Test 1: Traffic Report
-    print("\n📍 Test 1: Traffic Query")
-    response = handle_assistant_command(
-        origin="Master Canteen, Bhubaneswar",
-        destination="KIIT University, Patia",
-        is_traffic_query=True
-    )
-    print(f"Response: {response}")
-    
-    # Test 2: Navigation
-    print("\n📍 Test 2: Navigation Query")
-    response = handle_assistant_command(
-        origin="Master Canteen, Bhubaneswar",
-        destination="Nandankanan",
-        is_traffic_query=False
-    )
-    print(f"Response: {response}")
-    
-    # Test 3: No origin (uses default)
-    print("\n📍 Test 3: Default Origin")
-    response = handle_assistant_command(
-        destination="Patia",
-        is_traffic_query=False
-    )
-    print(f"Response: {response}")
-    
-    print("\n" + "="*60)
+        print(f"❌ Maps error: {e}")
+        return {"error": "ERROR", "details": str(e)}

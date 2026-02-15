@@ -1,53 +1,99 @@
-import requests
-from pathlib import Path
+import pvporcupine
+from pvrecorder import PvRecorder
+import os
+import time
 
-# Base directory
-BASE_DIR = Path(__file__).resolve().parent
+key_file = os.path.join("API Keys", "pico_access_key.txt")
+with open(key_file, "r") as f:
+    ACCESS_KEY = f.read().strip()
 
-# Path to OpenWeather API key
-API_KEYS_DIR = BASE_DIR / "API_Keys"
-API_KEYS_DIR.mkdir(exist_ok=True)
+keyword_path = os.path.join("Pico Voice Agent", "Hey-Shift_en_windows_v3_0_0.ppn")
 
-OPENWEATHER_KEY_FILE = API_KEYS_DIR / "openweather_api_key.txt"
-if not OPENWEATHER_KEY_FILE.exists():
-    with open(OPENWEATHER_KEY_FILE, "w") as f:
-        f.write("FAKE_OPENWEATHER_KEY")
-    print(f"⚠️ OpenWeather API key missing. Created fake key at {OPENWEATHER_KEY_FILE}")
+# Global persistent instances
+_porcupine = None
+_recorder = None
 
-with open(OPENWEATHER_KEY_FILE, "r") as f:
-    OPENWEATHER_API_KEY = f.read().strip()
-
-if not OPENWEATHER_API_KEY:
-    OPENWEATHER_API_KEY = "FAKE_OPENWEATHER_KEY"
-
-def get_weather_report(city_name):
-    """
-    Fetches real-time weather (Celsius) and returns a spoken string.
-    """
-    if not city_name:
-        return "I need to know the city name to check the weather."
-
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={OPENWEATHER_API_KEY}&units=metric"
-
+def initialize():
+    """Initialize wake word engine (call once at startup)"""
+    global _porcupine, _recorder
+    
     try:
-        response = requests.get(url)
-        data = response.json()
-
-        if response.status_code == 200:
-            temp = data["main"]["temp"]
-            feels_like = data["main"]["feels_like"]
-            description = data["weather"][0]["description"]
-            location = data["name"]
-
-            return (f"The current temperature in {location} is {round(temp)}°C, "
-                    f"but it feels like {round(feels_like)}°C. "
-                    f"Conditions are {description}.")
-        else:
-            return f"I couldn't find weather data for {city_name}."
+        _porcupine = pvporcupine.create(
+            access_key=ACCESS_KEY, 
+            keyword_paths=[keyword_path], 
+            sensitivities=[0.75]  # Slightly lower for better detection
+        )
+        
+        _recorder = PvRecorder(
+            device_index=-1, 
+            frame_length=_porcupine.frame_length
+        )
+        
+        print("✅ Wake word engine initialized")
+        return True
     except Exception as e:
-        print(f"Weather API Error: {e}")
-        return "I am having trouble connecting to the weather service."
+        print(f"❌ Wake word init failed: {e}")
+        return False
 
-# Test
-if __name__ == "__main__":
-    print(get_weather_report("Bhubaneswar"))
+def wait_for_wake_word():
+    """Wait for wake word using persistent resources"""
+    global _porcupine, _recorder
+    
+    # Initialize if not already done
+    if not _porcupine or not _recorder:
+        if not initialize():
+            print("⚠️ Press Enter to simulate wake word")
+            input()
+            return True
+    
+    try:
+        # Start recording if not already running
+        if not _recorder.is_recording:
+            _recorder.start()
+        
+        print("👂 Listening for 'Hey Shift'...")
+        
+        while True:
+            pcm = _recorder.read()
+            result = _porcupine.process(pcm)
+            
+            if result >= 0:
+                print("⚡ Wake Word Detected!")
+                time.sleep(0.3)  # Small delay to avoid re-triggering
+                return True
+    
+    except KeyboardInterrupt:
+        print("\n🛑 Stopped by user")
+        cleanup()
+        return False
+    except Exception as e:
+        print(f"❌ Wake word error: {e}")
+        # Don't cleanup - try to recover
+        time.sleep(1)
+        return wait_for_wake_word()  # Retry
+
+def cleanup():
+    """Clean up resources on shutdown"""
+    global _porcupine, _recorder
+    
+    if _recorder:
+        try:
+            if _recorder.is_recording:
+                _recorder.stop()
+            _recorder.delete()
+        except:
+            pass
+        _recorder = None
+    
+    if _porcupine:
+        try:
+            _porcupine.delete()
+        except:
+            pass
+        _porcupine = None
+    
+    print("✅ Wake word engine cleaned up")
+
+# Initialize on import
+if __name__ != "__main__":
+    initialize()

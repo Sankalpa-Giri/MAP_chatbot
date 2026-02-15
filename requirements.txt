@@ -16,3 +16,6 @@ sounddevice>=0.5.3
 soundfile>=0.13.1
 spacy>=3.8.11
 spotipy>=2.25.2
+textblob>=0.15.3
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0

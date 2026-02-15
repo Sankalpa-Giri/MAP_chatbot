@@ -1,155 +1,137 @@
 import sys
-import live_stt       # Ears
-import nlu_engine     # Logic
-import chatbot_brain  # Brain
-import geocoder
+import time
+import sounddevice as sd
+import live_stt
+import nlu_engine
+import chatbot_brain
 import wake_word_engine
 import piper_tts as tts_engine
-import time
 
-# ==========================================
-# REAL-TIME LOCATION MANAGER
-# ==========================================
-class LocationManager:
-    """Manages current location with smart caching"""
-    
-    def __init__(self, cache_duration=300):
-        """
-        Args:
-            cache_duration: Seconds before refreshing location (default: 5 minutes)
-        """
-        self.current_location = None
-        self.last_update_time = 0
-        self.cache_duration = cache_duration
-        
-        # Get initial location
-        self.refresh_location()
-    
-    def refresh_location(self, force=False):
-        """Update location from GPS/IP"""
-        time_since_update = time.time() - self.last_update_time
-        
-        # Skip if cache is still fresh (unless forced)
-        if not force and time_since_update < self.cache_duration:
-            return False
-        
-        # Fetch new location
-        try:
-            g = geocoder.ip('me')
-            
-            if g.latlng:
-                self.current_location = g.latlng
-                self.last_update_time = time.time()
-                print(f"📍 Location: {g.latlng} ({g.city})")
-                return True
-            else:
-                print("⚠️ Could not detect location")
-                return False
-                
-        except Exception as e:
-            print(f"Location error: {e}")
-            return False
-    
-    def get_location(self):
-        """Get current location (auto-refreshes if stale)"""
-        self.refresh_location()
-        return self.current_location
+# Follow-up mode state
+last_interaction_time = 0
+FOLLOW_UP_TIMEOUT = 10  # 10-second follow-up window
 
-# Initialize location manager
-location_manager = LocationManager(cache_duration=300)
-
-# ==========================================
-# COMMAND HANDLER
-# ==========================================
 def handle_user_input(text_from_speech):
-    """Main command processing loop"""
-    global location_manager
+    """
+    Process user speech - CRITICAL: Update timer here
+    """
+    global last_interaction_time
     
-    print(f"\n{'='*50}")
-    print(f"User Said: {text_from_speech}")
-    print('='*50)
+    if not text_from_speech or len(text_from_speech.strip()) < 2:
+        return
     
-    # 1. Check for termination
-    if "terminate" in text_from_speech.lower():
-        termination_msg = "Shutting down. Goodbye!"
-        print(termination_msg)
-        tts_engine.speak(termination_msg)
-        sys.exit(0)
+    print(f"\n✅ User: {text_from_speech}")
     
-    # 2. Manual location refresh
-    if "update location" in text_from_speech.lower() or "refresh location" in text_from_speech.lower():
-        success = location_manager.refresh_location(force=True)
-        tts_engine.speak("Location updated" if success else "Could not update location")
-        raise StopIteration
-    
-    # 3. Get current location for traffic requests
-    current_location = location_manager.get_location()
-    
-    # 4. Analyze intent
-    analysis_result = nlu_engine.nlu_engine_control(
-        text_from_speech, 
-        current_location=current_location
-    )
-    
-    print(f"DEBUG: Intent: {analysis_result}")
-    
-    # 5. Get response from brain
-    bot_reply = chatbot_brain.get_bot_response(analysis_result, text_from_speech)
-    
-    print(f"Assistant: {bot_reply}")
-    
-    # 6. Speak the response
-    tts_engine.speak(bot_reply)
-    
-    print("-" * 50)
-    raise StopIteration
+    try:
+        # Parse intent
+        intent = nlu_engine.parse_intent(text_from_speech)
+        print(f"🔍 Intent: {intent.get('intent')}, Dest: {intent.get('destination')}")
+        
+        # Get response
+        reply = chatbot_brain.get_bot_response(intent, text_from_speech)
+        
+        # Handle stop command
+        if reply == "stop_now":
+            print("🤖 Bot: Goodbye!")
+            tts_engine.speak("Goodbye!")
+            sd.stop()
+            sys.exit(0)
+        
+        # Speak response
+        print(f"🤖 Bot: {reply}")
+        tts_engine.speak(reply)
+        
+        # CRITICAL: Update timer AFTER successful response
+        last_interaction_time = time.time()
+        print(f"⏱️ Timer reset - 10s follow-up window active")
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        try:
+            tts_engine.speak("Sorry, I had trouble with that.")
+        except:
+            pass
+    finally:
+        sd.stop()
 
-# ==========================================
-# MAIN LOOP
-# ==========================================
-def main():
-    """Main assistant loop"""
+def listen_for_speech():
+    """
+    Listen for user speech
+    """
+    sd.stop()
+    time.sleep(0.2)
     
-    # Startup message
-    startup_msg = "Assistant initialized. Say Hey Shift to activate."
-    print(startup_msg)
-    tts_engine.speak(startup_msg)
+    try:
+        live_stt.start_listening(callback_function=handle_user_input)
+    except StopIteration:
+        pass
+    except Exception as e:
+        if "timeout" not in str(e).lower() and "iterating" not in str(e).lower():
+            print(f"⚠️ Speech error: {e}")
+        sd.stop()
+
+def main():
+    """
+    MAIN LOOP: Wake word → Command → 10s follow-up
+    """
+    global last_interaction_time
+    
+    print("=" * 60)
+    print("🚗 SHIFT TRAFFIC ASSISTANT - Bhubaneswar")
+    print("=" * 60)
+    print("💡 Say 'Hey Shift' to activate")
+    print("💡 Ask follow-ups within 10 seconds (no wake word needed)")
+    print("💡 Say 'stop' to exit")
+    print("=" * 60)
+    
+    tts_engine.initialize()
     
     while True:
         try:
-            # 1. Wait for wake word
-            if wake_word_engine.wait_for_wake_word():
+            # Calculate time since last interaction
+            time_since_last = time.time() - last_interaction_time
+            in_follow_up = (last_interaction_time > 0 and time_since_last < FOLLOW_UP_TIMEOUT)
+            
+            if in_follow_up:
+                # FOLLOW-UP MODE
+                remaining = int(FOLLOW_UP_TIMEOUT - time_since_last)
+                print(f"\n💬 Follow-up active ({remaining}s left) - Speak now!")
                 
-                # 2. Acknowledge
-                tts_engine.speak("Yes?")
+                listen_for_speech()
                 
-                # 3. Start listening
-                try:
-                    live_stt.start_listening(callback_function=handle_user_input)
-                except StopIteration:
-                    print("--- Command processed. Going back to sleep. ---\n")
-                except Exception as e:
-                    print(f"Error: {e}")
-                    tts_engine.speak("Sorry, I didn't catch that.")
+                # Small delay before next loop iteration
+                time.sleep(0.5)
+                
+            else:
+                # WAKE WORD MODE
+                if last_interaction_time > 0:
+                    print("\n⏰ Follow-up window closed")
+                    last_interaction_time = 0
+                
+                print("\n👂 Waiting for 'Hey Shift'...")
+                
+                if wake_word_engine.wait_for_wake_word():
+                    print("✅ Wake word detected!")
+                    
+                    # Acknowledge
+                    tts_engine.speak("Yes")
+                    time.sleep(0.3)
+                    
+                    # Listen for command
+                    listen_for_speech()
+                    
+                    # Small delay
+                    time.sleep(0.5)
         
         except KeyboardInterrupt:
-            print("\nStopping assistant...")
-            tts_engine.speak("Goodbye!")
-            break
+            print("\n\n👋 Shutting down...")
+            sd.stop()
+            sys.exit(0)
+            
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"❌ Main loop error: {e}")
+            sd.stop()
+            time.sleep(1)
 
-# ==========================================
-# ENTRY POINT
-# ==========================================
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nShutting down gracefully...")
-        sys.exit(0)
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nStopping...")
+    main()
