@@ -1,0 +1,222 @@
+[
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_menu.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/menu.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxxhdpi_audibot_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxxhdpi/audibot_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/font_font.xml.flat",
+        "source": "com.example.audibot.app-main-38:/font/font.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxhdpi_audibot_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxhdpi/audibot_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxxhdpi_ic_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxxhdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-hdpi_ic_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-hdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-anydpi-v26_audibot_launcher_round.xml.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-anydpi-v26/audibot_launcher_round.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-hdpi_audibot_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-hdpi/audibot_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_queen.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/queen.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_audibot_logo.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/audibot_logo.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_logout.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/logout.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_chat_icon.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/chat_icon.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-mdpi_ic_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-mdpi/ic_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxxhdpi_audibot_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxxhdpi/audibot_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/xml_network_security_config.xml.flat",
+        "source": "com.example.audibot.app-main-38:/xml/network_security_config.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xhdpi_audibot_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xhdpi/audibot_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_profile_icon.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/profile_icon.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/layout_drawer_header.xml.flat",
+        "source": "com.example.audibot.app-main-38:/layout/drawer_header.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxhdpi_audibot_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxhdpi/audibot_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_circle_bg.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/circle_bg.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_settings.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/settings.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_king.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/king.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_chat_input_bg.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/chat_input_bg.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/menu_bottom_nav_menu.xml.flat",
+        "source": "com.example.audibot.app-main-38:/menu/bottom_nav_menu.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxhdpi_ic_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxhdpi/ic_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-mdpi_audibot_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-mdpi/audibot_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/layout_item_bot.xml.flat",
+        "source": "com.example.audibot.app-main-38:/layout/item_bot.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-anydpi-v26_audibot_launcher.xml.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-anydpi-v26/audibot_launcher.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/menu_drawer_menu.xml.flat",
+        "source": "com.example.audibot.app-main-38:/menu/drawer_menu.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxhdpi_ic_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxhdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-hdpi_audibot_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-hdpi/audibot_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/xml_backup_rules.xml.flat",
+        "source": "com.example.audibot.app-main-38:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/font_revans.ttf.flat",
+        "source": "com.example.audibot.app-main-38:/font/revans.ttf"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_account_profile.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/account_profile.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/layout_item_user.xml.flat",
+        "source": "com.example.audibot.app-main-38:/layout/item_user.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-mdpi_audibot_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-mdpi/audibot_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_send_bg.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/send_bg.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-hdpi_ic_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-hdpi/ic_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xhdpi_ic_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xhdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_user_bg.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/user_bg.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/layout_activity_main.xml.flat",
+        "source": "com.example.audibot.app-main-38:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_ic_launcher_background.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/ic_launcher_background.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xhdpi_ic_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xhdpi/ic_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_send.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/send.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xxxhdpi_ic_launcher_round.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xxxhdpi/ic_launcher_round.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_bot_bg.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/bot_bg.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-xhdpi_audibot_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-xhdpi/audibot_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_add.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/add.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/drawable_audibot_launcher_foreground.xml.flat",
+        "source": "com.example.audibot.app-main-38:/drawable/audibot_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/mipmap-mdpi_ic_launcher.webp.flat",
+        "source": "com.example.audibot.app-main-38:/mipmap-mdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/xml_data_extraction_rules.xml.flat",
+        "source": "com.example.audibot.app-main-38:/xml/data_extraction_rules.xml"
+    },
+    {
+        "merged": "com.example.audibot.app-debug-36:/font_aperture.ttf.flat",
+        "source": "com.example.audibot.app-main-38:/font/aperture.ttf"
+    }
+]
