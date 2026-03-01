@@ -18,3 +18,5 @@ driver_memory/
 Pico Voice Agent/
 Voices/
 frontend/
+config.py
+vocabulary.py
