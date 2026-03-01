@@ -1,172 +1,235 @@
-# driver_rag.py - Memory & RAG System
-
+# driver_rag.py
 import uuid
-import ollama
+import logging
 import chromadb
-from backend.config import OLLAMA_MODEL
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
-# Initialize clients
-ollama_client = ollama.Client()
-chroma_client = chromadb.PersistentClient(path="embeddings_data")
-collection = chroma_client.get_or_create_collection(name="driver_collection")
-
-LOCATION_TYPES = ["home", "office", "gym", "work"]
+logger = logging.getLogger(__name__)
 
 # ==========================================
-# MEMORY OPERATIONS
+# CONFIG
 # ==========================================
 
-def handle_memory_ops(user_text: str) -> str | None:
-    """Handle remember/forget commands"""
-    text_lower = user_text.lower().strip()
-
-    # REMEMBER
-    if "remember" in text_lower:
-        memory_text = text_lower.split("remember", 1)[1].strip()
-        memory_text = memory_text.replace("that", "").strip()
-
-        if memory_text:
-            # Detect which location type is being saved
-            location_type = None
-            for loc in LOCATION_TYPES:
-                if f"my {loc}" in memory_text or f"{loc} is" in memory_text:
-                    location_type = loc
-                    break
-
-            # ── Delete OLD entry for this exact type using metadata filter ──
-            if location_type:
-                print(f"🔄 Updating {location_type}...")
-                try:
-                    # Get ALL docs with this exact type tag
-                    existing = collection.get(
-                        where={"type": location_type}
-                    )
-                    if existing and existing.get("ids"):
-                        for old_id in existing["ids"]:
-                            collection.delete(ids=[old_id])
-                            print(f"   🗑️ Deleted old {location_type} entry: {old_id}")
-                except Exception as e:
-                    print(f"   ⚠️ Delete error: {e}")
-
-            # ── Save new memory with exact type tag ────────────────────────
-            collection.add(
-                ids=[str(uuid.uuid4())],
-                documents=[memory_text],
-                metadatas=[{
-                    "source": "user_memory",
-                    "type": location_type or "general"
-                }]
-            )
-
-            if location_type:
-                return f"Updated your {location_type} address."
-            else:
-                return "Got it. I'll remember that."
-
-        return "What should I remember?"
-
-    # FORGET
-    if text_lower.startswith("forget") or text_lower.startswith("delete"):
-        topic = text_lower.replace("forget", "").replace("delete", "").strip()
-
-        # Try exact type match first
-        for loc in LOCATION_TYPES:
-            if loc in topic:
-                try:
-                    existing = collection.get(where={"type": loc})
-                    if existing and existing.get("ids"):
-                        for old_id in existing["ids"]:
-                            collection.delete(ids=[old_id])
-                        return f"Okay, I've forgotten your {loc}."
-                except Exception as e:
-                    print(f"⚠️ Forget error: {e}")
-
-        # Fallback to fuzzy search
-        if topic:
-            results = collection.query(query_texts=[topic], n_results=1)
-            if results.get("ids") and results["ids"][0]:
-                collection.delete(ids=[results["ids"][0][0]])
-                return f"Okay, I've forgotten about {topic}."
-
-        return "I couldn't find that memory."
-
-    return None
+LLM_MODEL = "llama3.1:8b"
+EMBED_MODEL = "nomic-embed-text"
 
 # ==========================================
-# RAG RETRIEVAL — exact match for location types
+# CHROMA — persistent vector memory
 # ==========================================
 
-def retrieve_context(query: str) -> str:
+_chroma_client = chromadb.PersistentClient(path="driver_memory")
+_collection = _chroma_client.get_or_create_collection(name="driver_collection")
+
+# ==========================================
+# EMBEDDINGS — via LangChain/Ollama
+# ==========================================
+
+_embedder = OllamaEmbeddings(model=EMBED_MODEL)
+
+def _get_embedding(text: str) -> list[float]:
+    return _embedder.embed_query(text)
+
+# ==========================================
+# LLM CHAIN
+# ==========================================
+
+_llm = ChatOllama(model=LLM_MODEL, temperature=0.4, num_predict=200)
+
+_prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are DriverAI — an intelligent in-car assistant in Bhubaneswar, India.
+
+PERSONALITY:
+- Smart, helpful, calm
+- Speak naturally and concisely — this is a voice response, max 2 sentences
+- Never mention being an AI or your model name unless directly asked
+- Never say you are built by any company
+
+RULES:
+1. If the answer exists in MEMORY → use it, prioritize it over general knowledge
+2. If not in memory → answer from general knowledge
+3. For personal info not in memory → say "I don't know that yet"
+"""),
+    ("human", "MEMORY:\n{memory_context}\n\nQuestion: {user_query}")
+])
+
+_rag_chain = _prompt | _llm | StrOutputParser()
+
+# ==========================================
+# MEMORY STORE
+# ==========================================
+
+def store_memory(user_text: str) -> dict | None:
     """
-    Retrieve memory — uses exact metadata filter for location types
-    (home/office/gym/work) to avoid cross-contamination.
-    Falls back to vector search for general queries.
+    Stores memory if text starts with 'remember'.
+    Returns status dict if triggered, None if not applicable.
+    Called by chatbot_brain before ask_llm — not repeated inside ask_llm.
     """
+    if not user_text.lower().startswith("remember"):
+        return None
+
+    memory_text = user_text[len("remember"):].strip()
+    if not memory_text:
+        return {
+            "reply": "What would you like me to remember?",
+            "action": "CLARIFY",
+            "data": {}
+        }
+
     try:
-        query_lower = query.lower().strip()
+        emb = _get_embedding(memory_text)
+        _collection.add(
+            ids=[str(uuid.uuid4())],
+            embeddings=[emb],
+            documents=[memory_text],
+            metadatas=[{"type": "memory"}]
+        )
+        logger.info(f"Memory stored: '{memory_text}'")
+        return {
+            "reply": f"Got it, I'll remember that.",
+            "action": "REPLY",
+            "data": {"stored": memory_text}
+        }
+    except Exception as e:
+        logger.error(f"store_memory failed: {e}")
+        return {
+            "reply": "I couldn't save that to memory.",
+            "action": "ERROR",
+            "data": {}
+        }
 
-        # ── Exact match for known location types ──────────────────────────
-        for loc in LOCATION_TYPES:
-            if loc in query_lower:
-                existing = collection.get(where={"type": loc})
-                if existing and existing.get("documents") and existing["documents"]:
-                    doc = existing["documents"][0]
-                    print(f"   🎯 Exact memory match for '{loc}': {doc}")
-                    return f"- {doc}"
-                else:
-                    return "No memory found."
+# ==========================================
+# MEMORY DELETE
+# ==========================================
 
-        # ── Fuzzy vector search for general queries ────────────────────────
-        results = collection.query(
-            query_texts=[query],
+def delete_memory(user_text: str) -> dict | None:
+    """
+    Deletes closest memory match if text starts with 'delete' or 'forget'.
+    Returns status dict if triggered, None if not applicable.
+    """
+    text_lower = user_text.lower()
+    trigger = next(
+        (t for t in ("forget", "delete") if text_lower.startswith(t)),
+        None
+    )
+    if not trigger:
+        return None
+
+    topic = user_text[len(trigger):].strip()
+    if not topic:
+        return {
+            "reply": "What would you like me to forget?",
+            "action": "CLARIFY",
+            "data": {}
+        }
+
+    try:
+        emb = _get_embedding(topic)
+        results = _collection.query(query_embeddings=[emb], n_results=1)
+
+        if not results["ids"] or not results["ids"][0]:
+            return {
+                "reply": f"I don't have anything stored about {topic}.",
+                "action": "REPLY",
+                "data": {}
+            }
+
+        _collection.delete(ids=[results["ids"][0][0]])
+        logger.info(f"Memory deleted for topic: '{topic}'")
+        return {
+            "reply": f"Done, I've forgotten that.",
+            "action": "REPLY",
+            "data": {"deleted_topic": topic}
+        }
+    except Exception as e:
+        logger.error(f"delete_memory failed: {e}")
+        return {
+            "reply": "I couldn't delete that from memory.",
+            "action": "ERROR",
+            "data": {}
+        }
+
+# ==========================================
+# MEMORY RETRIEVE
+# ==========================================
+
+def retrieve_memory(query: str) -> str:
+    """
+    Returns relevant memory context as a plain string.
+    Used internally by ask_llm and externally by chatbot_brain
+    for shortcut location resolution.
+    """
+    if not query or not query.strip():
+        return ""
+
+    try:
+        emb = _get_embedding(query)
+        results = _collection.query(
+            query_embeddings=[emb],
             n_results=3,
             include=["documents"]
         )
-        docs = results.get("documents", [[]])[0]
-        if not docs:
-            return "No memory found."
-        return "\n".join(f"- {doc}" for doc in docs)
-
+        documents = results.get("documents") or [[]]  # handles None explicitly
+        docs = documents[0] if documents else []
+        return "\n".join(docs) if docs else ""
     except Exception as e:
-        print(f"⚠️ Retrieve error: {e}")
-        return "No memory found."
-
-def query_chroma(query: str) -> str:
-    """Alias for compatibility"""
-    return retrieve_context(query)
+        logger.error(f"retrieve_memory failed: {e}")
+        return ""
 
 # ==========================================
-# LLM INTERACTION
+# ASK LLM
 # ==========================================
 
-def build_prompt(query, context, history):
-    history_str = "\n".join(history[-3:])
-    return f"""You are a Driver Assistant. Be brief.
-
-MEMORY:
-{context}
-
-RECENT CONVERSATION:
-{history_str}
-
-QUESTION: {query}
-
-Answer in ONE short sentence."""
-
-def ask_llm(user_query: str, history=None) -> str:
-    if history is None:
-        history = []
+def ask_llm(user_query: str) -> dict:
+    """
+    Pure LLM query with RAG context injection.
+    Memory store/delete are NOT handled here — chatbot_brain
+    calls store_memory/delete_memory separately before routing here,
+    so this function only runs for UNKNOWN intents that reach the LLM.
+    """
+    if not user_query or not user_query.strip():
+        return {
+            "reply": "I didn't catch that.",
+            "action": "ERROR",
+            "data": {}
+        }
 
     try:
-        context = retrieve_context(user_query)
-        prompt = build_prompt(user_query, context, history)
+        memory_context = retrieve_memory(user_query)
 
-        response = ollama_client.chat(
-            model=OLLAMA_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0},
-            keep_alive=300
-        )
-        return response["message"]["content"].strip()
+        reply = _rag_chain.invoke({
+            "memory_context": memory_context or "No stored memory.",
+            "user_query": user_query
+        })
+
+        logger.info(f"RAG reply generated. Memory used: {bool(memory_context)}")
+
+        return {
+            "reply": reply,
+            "action": "REPLY",
+            "data": {"memory_used": bool(memory_context)}
+        }
+
     except Exception as e:
-        return "I'm having trouble thinking right now."
+        logger.error(f"ask_llm failed: {e}")
+        return {
+            "reply": "I'm having trouble thinking right now.",
+            "action": "ERROR",
+            "data": {}
+        }
+
+# ==========================================
+# TERMINAL TEST
+# ==========================================
+
+if __name__ == "__main__":
+    print("🚗 DriverAI Started (type 'exit' to quit)\n")
+    while True:
+        q = input("You: ").strip()
+        if q.lower() == "exit":
+            break
+        
+        # Test memory ops first
+        result = store_memory(q) or delete_memory(q) or ask_llm(q)
+        print(f"AI: {result['reply']}\n")

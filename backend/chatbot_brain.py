@@ -1,161 +1,336 @@
-# chatbot_brain.py - Response Logic
+# chatbot_brain.py
+import logging
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from typing import Optional
 
-from backend import maps_engine
-from backend import driver_rag
-from backend.config import DEFAULT_ORIGIN
+import maps_engine
+import weather_engine
+import spotify_music
+import driver_rag
+import conversation_store
 
-# Context storage
-context = {
-    "last_destination": None,
-    "current_location": None,   # can be updated dynamically
-    "history": []
-}
+logger = logging.getLogger(__name__)
 
 # ==========================================
-# MAIN RESPONSE FUNCTION
+# LLM CHAIN — UNKNOWN intents via RAG
 # ==========================================
 
-def get_bot_response(nlu_result: dict, original_text: str, current_location=None) -> str:
-    global context
+_llm = ChatOllama(model="llama3.1:8b", temperature=0.3, num_predict=300)
 
-    intent = nlu_result.get("intent", "unknown")
+_general_prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are a helpful in-car voice assistant for drivers in Bhubaneswar, India.
+Answer the user's question using the context provided from the knowledge base.
+Be concise, practical, and friendly. Avoid long paragraphs — this is a voice response.
+If the context is empty or irrelevant, answer from general knowledge.
+Never say you are an AI or mention your model name."""),
+    ("human", "Conversation history:\n{history}\n\nContext:\n{rag_context}\n\nQuestion: {user_input}")
+])
 
-    # Update current location if provided
-    if current_location:
-        context["current_location"] = current_location
+_general_chain = _general_prompt | _llm | StrOutputParser()
 
-    # Use dynamic location if available, else fall back to default
-    origin = context["current_location"] or DEFAULT_ORIGIN
+# ==========================================
+# REPLY FORMATTERS
+# ==========================================
 
-    # STOP COMMAND
-    if intent == "stop":
-        return "stop_now"
+def _format_route_reply(destination: str, primary: dict, steps: list[dict]) -> str:
+    """Builds a full route reply: summary + turn-by-turn steps."""
+    congestion = primary.get("congestion", "CLEAR").capitalize()
+    delay = primary.get("delay_minutes", 0)
+    delay_text = f" with {delay} min delay" if delay > 0 else ""
 
-    # TRAFFIC/ROUTE REQUEST
-    if intent == "get_route_traffic":
-        destination      = nlu_result.get("destination")
-        wants_directions = nlu_result.get("wants_directions", False)
+    summary = (
+        f"Route to {destination} via {primary['summary']}. "
+        f"{primary['distance_text']}, about {primary['duration_text']}{delay_text}. "
+        f"Traffic is {congestion}."
+    )
 
-        print(f"📍 Destination: {destination}, Directions: {wants_directions}, Origin: {origin}")
+    if not steps:
+        return summary
 
-        # Handle follow-up references
-        if not destination or destination.lower() in ["there", "it", "that"]:
-            destination = context["last_destination"]
-            if not destination:
-                return "Where would you like to go?"
+    step_lines = "\n".join(
+        f"{i+1}. {s['instruction']} ({s['distance']})"
+        for i, s in enumerate(steps)
+    )
 
-        # ── Clean destination name ─────────────────────────────────────────
-        # Remove command words that leaked into the destination
-        # e.g. "Directions Nayapalli" → "Nayapalli"
-        import re
-        command_prefixes = [
-            "directions to", "directions", "navigate to", "navigate",
-            "take me to", "go to", "route to", "traffic to",
-            "how to get to", "how to go to", "show me", "guide me to"
-        ]
-        dest_clean = destination.lower().strip()
-        for prefix in command_prefixes:
-            if dest_clean.startswith(prefix):
-                destination = destination[len(prefix):].strip()
-                break
-        destination = destination.strip().title()
+    return f"{summary}\n\nDirections:\n{step_lines}"
 
-        # Resolve saved locations
-        if destination and destination.lower() in ["home", "office", "gym", "work"]:
-            saved = driver_rag.retrieve_context(f"{destination}")
 
-            if saved and "no memory" not in saved.lower():
-                found_address = None
+def _format_traffic_reply(destination: str, primary: dict) -> str:
+    """Builds a traffic-only reply from primary route data."""
+    congestion = primary.get("congestion", "CLEAR")
+    delay = primary.get("delay_minutes", 0)
 
-                for line in saved.split('\n'):
-                    line = line.strip('- ').strip()
+    congestion_map = {
+        "CLEAR":  f"Traffic to {destination} is clear. No delays expected.",
+        "MEDIUM": f"Moderate traffic to {destination}. Expect around {delay} min delay.",
+        "HEAVY":  f"Heavy traffic to {destination}. Expect around {delay} min delay.",
+    }
 
-                    if "is at" in line.lower():
-                        parts = line.lower().split("is at")
-                        if len(parts) > 1:
-                            found_address = parts[-1].strip()
-                    elif ":" in line:
-                        parts = line.split(":")
-                        if len(parts) > 1:
-                            found_address = parts[-1].strip()
-                    else:
-                        if destination.lower() not in line.lower() or len(line.split()) > 2:
-                            found_address = line
+    return congestion_map.get(
+        congestion,
+        f"Traffic to {destination}: {congestion}. Estimated delay: {delay} mins."
+    )
 
-                if found_address:
-                    found_address = found_address.replace("my", "").strip()
-                    found_address = found_address.replace(destination.lower(), "").strip()
 
-                    if len(found_address) > 2:
-                        destination = found_address.title()
-                        print(f"✅ Using saved: {destination}")
-                    else:
-                        return f"The address for {destination} seems incomplete."
-                else:
-                    return f"I couldn't find the address for {destination}."
-            else:
-                return f"I don't have your {destination} saved. Say 'remember my {destination} is at [address]'."
+def _format_alternate_reply(destination: str, alternates: list[dict]) -> str:
+    """Builds alternate routes reply."""
+    if not alternates:
+        return f"No alternate routes found to {destination}."
 
-        # Validate destination
-        if not destination or len(destination.strip()) < 2:
-            return "I didn't catch where you want to go. Can you repeat?"
+    lines = [f"Alternate routes to {destination}:"]
+    for i, route in enumerate(alternates, 1):
+        delay = route.get("delay_minutes", 0)
+        delay_text = f", {delay} min delay" if delay > 0 else ", no delay"
+        congestion = route.get("congestion", "CLEAR").capitalize()
+        lines.append(
+            f"{i}. Via {route['summary']} — "
+            f"{route['distance_text']}, {route['duration_text']}"
+            f"{delay_text}. Traffic: {congestion}."
+        )
 
-        # Get route (picks fastest of up to 3 alternatives automatically)
-        route = maps_engine.get_route_data(origin, destination, get_steps=wants_directions)
+    return "\n".join(lines)
 
-        # Handle errors
-        if "error" in route:
-            if route.get("message"):
-                return route["message"]
-            return f"I couldn't find a route to {destination}. Try saying it differently."
 
-        # Save for follow-ups
-        context["last_destination"] = destination
+# ==========================================
+# INTERNAL HELPERS
+# ==========================================
 
-        # ── Build response ─────────────────────────────────────────────────
-        if wants_directions and "steps" in route and len(route["steps"]) > 0:
-            steps = route["steps"]
+def _query_llm(user_text: str, session_id: str) -> dict:
+    try:
+        session = conversation_store.get_session(session_id)
+        history = session.get_history_text()
 
-            # Show max 4 key turn steps — concise for voice/chat
-            key_steps = steps[:4]
+        rag_result = driver_rag.ask_llm(user_text)
 
-            reply = f"To {route['destination']}: "
-            reply += ". Then ".join(key_steps)
-            reply += f". {route['distance']}, {route['duration']}. {route['traffic_desc']}."
+        # Memory op was triggered — return directly
+        if isinstance(rag_result, dict) and rag_result.get("action") in ("REPLY", "ERROR", "CLARIFY"):
+            return rag_result
 
-        else:
-            # Traffic summary mode
-            reply = f"{route['destination']} is {route['distance']} away. "
-            reply += f"{route['duration']} via {route['route_name']}. "
-            reply += f"{route['traffic_desc']}."
+        context_str = rag_result.get("reply", "") if isinstance(rag_result, dict) else str(rag_result)
 
-        context["history"].append(f"Route to {destination}")
-        return reply
+        reply = _general_chain.invoke({
+            "history": history or "No prior conversation.",
+            "rag_context": context_str,
+            "user_input": user_text
+        })
 
-    # MEMORY OPERATIONS
-    else:
-        memory_resp = driver_rag.handle_memory_ops(original_text)
-        if memory_resp:
-            context["history"].append(f"Memory: {original_text}")
-            return memory_resp
+        return {"reply": reply, "action": "REPLY", "data": {}}
 
-        # GENERAL CONVERSATION
+    except Exception as e:
+        logger.error(f"LLM query failed: {e}")
+        return {
+            "reply": "I'm having trouble connecting to my language model.",
+            "action": "ERROR",
+            "data": {}
+        }
+
+
+def _resolve_shortcut_location(destination: str) -> str:
+    shortcuts = {"home", "office", "college", "gym", "work", "school"}
+    if destination.lower() not in shortcuts:
+        return destination
+    try:
+        rag_address = driver_rag.retrieve_memory(f"What is my {destination} address?")
+        if rag_address and "I don't know" not in rag_address:
+            logger.info(f"Resolved '{destination}' → '{rag_address}' from memory")
+            return rag_address
+    except Exception as e:
+        logger.warning(f"Memory lookup failed for '{destination}': {e}")
+    return destination
+
+
+# ==========================================
+# ROUTER
+# ==========================================
+
+def get_bot_response(nlu_result: dict, original_text: str, session_id: str = "default", current_location: Optional[str] = None) -> dict:
+    intent = nlu_result.get("intent", "UNKNOWN")
+    entities = nlu_result.get("entities", {})
+    user_location = nlu_result.get("user_location")
+
+    # Resolve origin
+    origin = current_location
+    if user_location:
+        origin = f"{user_location['latitude']},{user_location['longitude']}"
+    if not origin:
+        origin = "KIIT Campus 4"
+
+    # -------- WEATHER --------
+    if intent == "GET_WEATHER":
+        location = entities.get("location")
+        if not location:
+            return {
+                "reply": "Which city's weather would you like to know?",
+                "action": "CLARIFY",
+                "data": {"missing": "location"}
+            }
         try:
-            reply = driver_rag.ask_llm(original_text, context["history"])
-            context["history"].append(reply)
-            if len(context["history"]) > 5:
-                context["history"].pop(0)
-            return reply
+            weather_data = weather_engine.get_weather_report(location)
+            reply = (
+                f"In {weather_data['city']}, it's currently {weather_data['temperature_c']} "
+                f"degrees Celsius, feels like {weather_data['feels_like_c']}. "
+                f"{weather_data['description'].capitalize()}."
+            )
+            return {"reply": reply, "action": "REPLY", "data": weather_data}
         except Exception as e:
-            print(f"⚠️ LLM error: {e}")
-            return "I'm best at helping with traffic and directions. Try asking me about a destination!"
+            logger.error(f"Weather engine failed: {e}")
+            return {
+                "reply": f"I couldn't fetch the weather for {location} right now.",
+                "action": "ERROR", "data": {}
+            }
 
-def update_location(new_location: str):
-    """Call this to update the driver's current location dynamically"""
-    global context
-    context["current_location"] = new_location
-    print(f"📍 Location updated: {new_location}")
+    # -------- ROUTE (step-by-step) --------
+    elif intent == "GET_ROUTE":
+        destination = entities.get("destination")
+        if not destination:
+            return {
+                "reply": "Where would you like to go?",
+                "action": "CLARIFY",
+                "data": {"missing": "destination"}
+            }
 
-def clear_context():
-    global context
-    context = {"last_destination": None, "current_location": None, "history": []}
+        destination = _resolve_shortcut_location(destination)
+
+        try:
+            route_data = maps_engine.get_route_data(
+                origin=origin,
+                destination=destination,
+                traffic=False
+            )
+            primary = route_data.get("primary_route", {})
+
+            # Fetch step-by-step instructions
+            steps = maps_engine.get_route_steps(origin=origin, destination=destination)
+
+            reply = _format_route_reply(destination, primary, steps)
+
+            return {
+                "reply": reply,
+                "action": "NAVIGATION",
+                "data": {**route_data, "steps": steps}
+            }
+        except Exception as e:
+            logger.error(f"Maps engine failed: {e}")
+            return {
+                "reply": f"I couldn't get directions to {destination} right now.",
+                "action": "ERROR", "data": {}
+            }
+
+    # -------- TRAFFIC ONLY --------
+    elif intent == "GET_TRAFFIC":
+        destination = entities.get("destination")
+        if not destination:
+            return {
+                "reply": "Which destination would you like traffic info for?",
+                "action": "CLARIFY",
+                "data": {"missing": "destination"}
+            }
+
+        destination = _resolve_shortcut_location(destination)
+
+        try:
+            route_data = maps_engine.get_route_data(
+                origin=origin,
+                destination=destination,
+                traffic=True          # request traffic data
+            )
+            primary = route_data.get("primary_route", {})
+            reply = _format_traffic_reply(destination, primary)
+
+            return {
+                "reply": reply,
+                "action": "REPLY",
+                "data": {
+                    "congestion": primary.get("congestion"),
+                    "delay_minutes": primary.get("delay_minutes"),
+                    "destination": destination
+                }
+            }
+        except Exception as e:
+            logger.error(f"Maps engine failed: {e}")
+            return {
+                "reply": f"I couldn't get traffic info for {destination} right now.",
+                "action": "ERROR", "data": {}
+            }
+
+    # -------- ALTERNATE ROUTES --------
+    elif intent == "GET_ALTERNATE_ROUTE":
+        destination = entities.get("destination")
+        if not destination:
+            return {
+                "reply": "Which destination would you like alternate routes for?",
+                "action": "CLARIFY",
+                "data": {"missing": "destination"}
+            }
+
+        destination = _resolve_shortcut_location(destination)
+
+        try:
+            route_data = maps_engine.get_route_data(
+                origin=origin,
+                destination=destination,
+                traffic=False
+            )
+            alternates = route_data.get("alternative_routes", [])
+            reply = _format_alternate_reply(destination, alternates)
+
+            return {
+                "reply": reply,
+                "action": "NAVIGATION",
+                "data": {"alternative_routes": alternates, "destination": destination}
+            }
+        except Exception as e:
+            logger.error(f"Maps engine failed: {e}")
+            return {
+                "reply": f"I couldn't get alternate routes to {destination} right now.",
+                "action": "ERROR", "data": {}
+            }
+
+    # -------- MUSIC --------
+    elif intent == "GET_MUSIC":
+        song = entities.get("song")
+        if not song:
+            return {
+                "reply": "What would you like to listen to?",
+                "action": "CLARIFY",
+                "data": {"missing": "song"}
+            }
+        try:
+            track_data = spotify_music.search_track(song)
+            if "error" in track_data:
+                return {
+                    "reply": f"I couldn't find {song} on Spotify.",
+                    "action": "ERROR", "data": track_data
+                }
+            return {
+                "reply": f"Playing {track_data['track_name']} by {track_data['artist']}.",
+                "action": "SPOTIFY_PLAY",
+                "data": track_data
+            }
+        except Exception as e:
+            logger.error(f"Spotify engine failed: {e}")
+            return {
+                "reply": "I couldn't connect to Spotify right now.",
+                "action": "ERROR", "data": {}
+            }
+
+    # -------- PHONE --------
+    elif intent == "GET_PHONE":
+        contact = entities.get("contact")
+        if not contact:
+            return {
+                "reply": "Who would you like to call?",
+                "action": "CLARIFY",
+                "data": {"missing": "contact"}
+            }
+        return {
+            "reply": f"Calling {contact}.",
+            "action": "PHONE_CALL",
+            "data": {"contact": contact}
+        }
+
+    # -------- UNKNOWN → RAG + LLM --------
+    else:
+        return _query_llm(original_text, session_id)

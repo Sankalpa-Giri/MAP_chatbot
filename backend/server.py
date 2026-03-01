@@ -1,102 +1,62 @@
-# server.py - SHIFT Traffic Assistant Backend
+'''
+FastAPI server. Run the command to start the server: uvicorn server:app --host 0.0.0.0 --port 8000
+It has two Data models: ChatRequest and ChatResponse
+It has two end points: 
+                    "/" - the home/root endpoint. Used to check status of server.
+                    "/voice" - API calling end point. It does not enforces any return format only return the main_reponse.
+                               Used to intereact with the server by request and response of messages.
+                    "/docs" - Swagger UI of FastAPI. Used to test API calls.
 
+'''
+# server.py
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import time
-import traceback
+from pydantic import BaseModel, Field
+from typing import Annotated, Optional
+import main
 
-# ── Import your existing modules ──────────────────────────────────────────────
-try:
-    from backend import nlu_engine
-    from backend import chatbot_brain
-    from backend import driver_rag
-except ImportError as e:
-    raise RuntimeError(f"Missing module: {e}")
+app = FastAPI(title="Hey Shift")
 
-# ── App setup ─────────────────────────────────────────────────────────────────
-app = FastAPI(title="SHIFT Traffic Assistant", version="1.0.0")
+# ==========================================
+# DATA MODELS
+# ==========================================
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ── Session state ─────────────────────────────────────────────────────────────
-session = {
-    "last_interaction": 0,
-    "conversation_active": False,
-    "last_destination": None,
-}
-
-FOLLOW_UP_WINDOW = 30
-
-# ── Models ────────────────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
-    text: str
+    text: Annotated[str, Field(..., description="Text to be processed by the system")]
+    latitude: Optional[float] = Field(None, description="User's current latitude")
+    longitude: Optional[float] = Field(None, description="User's current longitude")
+    session_id: Annotated[str, Field(default="default", description="Stable ID per user/device session")]
 
 class ChatResponse(BaseModel):
-    reply: str
+    reply: str = Field(..., description="Text response to return to the client")
+    action: Optional[str] = None
+    metadata: Optional[dict] = None
 
-# ── Main chat endpoint ────────────────────────────────────────────────────────
-@app.post("/voice", response_model=ChatResponse)
-async def voice_endpoint(req: ChatRequest):
-    user_text = req.text.strip()
-
-    if not user_text:
-        return ChatResponse(reply="I didn't catch that. Please try again.")
-
-    print(f"\n📱 Android → Server: '{user_text}'")
-
-    try:
-        intent      = nlu_engine.parse_intent(user_text)
-        intent_type = intent.get("intent", "unknown")
-        destination = intent.get("destination")
-
-        print(f"   Intent: {intent_type} | Dest: {destination}")
-
-        if destination:
-            session["last_destination"] = destination
-        elif intent_type == "get_route_traffic" and not destination:
-            if session["last_destination"]:
-                intent["destination"] = session["last_destination"]
-
-        if intent_type in ("save_memory", "delete_memory"):
-            memory_reply = driver_rag.handle_memory_ops(user_text)
-            if memory_reply:
-                _update_session()
-                return ChatResponse(reply=memory_reply)
-
-        if intent_type == "stop":
-            session["conversation_active"] = False
-            return ChatResponse(reply="Okay, goodbye! Drive safe.")
-
-        reply = chatbot_brain.get_bot_response(intent, user_text)
-
-        if not reply or reply == "stop_now":
-            return ChatResponse(reply="Goodbye! Drive safe.")
-
-        _update_session(destination)
-        print(f"   🤖 Reply: {reply}")
-        return ChatResponse(reply=reply)
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-def _update_session(destination=None):
-    session["last_interaction"] = time.time()
-    session["conversation_active"] = True
-    if destination:
-        session["last_destination"] = destination
+# ==========================================
+# ENDPOINTS
+# ==========================================
 
 @app.get("/")
-async def health():
-    return {"status": "SHIFT backend running"}
+async def start_page():
+    return {"message": "Welcome to AudiBOT.", "status": "Running"}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=7777, reload=True)
+
+@app.post("/voice", response_model=ChatResponse)
+async def voice(request: ChatRequest):
+    try:
+        text = request.text.strip().lower()
+
+        if not text:
+            return ChatResponse(reply="I didn't catch that. Please say again.")
+
+        main_response = main.handle_user_input(user_text=text, latitude=request.latitude, longitude=request.longitude, session_id=request.session_id)
+
+        # main.py guarantees a dict with at least {"reply": str}
+        # ChatResponse will validate and raise clearly if reply is missing
+        return ChatResponse(
+            reply=main_response.get("reply", "No response generated."),
+            action=main_response.get("action"),
+            metadata=main_response.get("metadata")
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
