@@ -159,36 +159,6 @@ def get_bot_response(nlu_result: dict, original_text: str, session_id: str = "de
 
     # -------- WEATHER --------
     if intent == "GET_WEATHER":
-        # location = entities.get("location")
-        # if not location: #If any specified location is not given, then go for current location
-        #     latitude = user_location.get("latitude")
-        #     longitute = user_location.get("longitute")
-        #     if latitude and longitute:
-        #         weather_data = weather_engine.get_weather_by_coordinates(lat=latitude, lon=longitute)
-        #         reply = ask_LLM.generate_response(json=weather_data, user_query=original_text)
-
-        #         return {"reply": reply, "action": "REPLY", "data": weather_data} 
-
-        #     else:
-
-        #         return {
-        #             "reply": "Which city's weather would you like to know?",
-        #             "action": "CLARIFY",
-        #             "data": {"missing": "location"}
-        #         }
-        # try:
-        #     weather_data = weather_engine.get_weather_report(location)
-        #     reply = ask_LLM.generate_response(json= weather_data, user_query= original_text)
-
-        #     return {"reply": reply, "action": "REPLY", "data": weather_data}
-        
-        # except Exception as e:
-        #     logger.error(f"Weather engine failed: {e}")
-        #     return {
-        #         "reply": f"I couldn't fetch the weather for {location} right now.",
-        #         "action": "ERROR", "data": {}
-        #     }
-
         location = entities.get("location")
         if location:
             try:
