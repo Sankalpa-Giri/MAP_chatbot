@@ -65,3 +65,9 @@ def handle_user_input(user_text: str,latitude: Optional[float] = None,longitude:
             "action": "ERROR",
             "error": str(e)
         }
+    
+import pprint
+
+if __name__ == "__main__":
+    result = handle_user_input(user_text="Whats the weather", latitude=20.353708, longitude=85.819925, session_id='2')
+    pprint.pprint(result)

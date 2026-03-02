@@ -10,6 +10,7 @@ import weather_engine
 import spotify_music
 import driver_rag
 import conversation_store
+import ask_LLM
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +146,12 @@ def _resolve_shortcut_location(destination: str) -> str:
 # ROUTER
 # ==========================================
 
-def get_bot_response(nlu_result: dict, original_text: str, session_id: str = "default", current_location: Optional[str] = None) -> dict:
+def get_bot_response(nlu_result: dict, original_text: str, session_id: str = "default") -> dict:
     intent = nlu_result.get("intent", "UNKNOWN")
     entities = nlu_result.get("entities", {})
-    user_location = nlu_result.get("user_location")
+    user_location = nlu_result.get("user_location", {})
 
     # Resolve origin
-    origin = current_location
     if user_location:
         origin = f"{user_location['latitude']},{user_location['longitude']}"
     if not origin:
@@ -159,27 +159,68 @@ def get_bot_response(nlu_result: dict, original_text: str, session_id: str = "de
 
     # -------- WEATHER --------
     if intent == "GET_WEATHER":
+        # location = entities.get("location")
+        # if not location: #If any specified location is not given, then go for current location
+        #     latitude = user_location.get("latitude")
+        #     longitute = user_location.get("longitute")
+        #     if latitude and longitute:
+        #         weather_data = weather_engine.get_weather_by_coordinates(lat=latitude, lon=longitute)
+        #         reply = ask_LLM.generate_response(json=weather_data, user_query=original_text)
+
+        #         return {"reply": reply, "action": "REPLY", "data": weather_data} 
+
+        #     else:
+
+        #         return {
+        #             "reply": "Which city's weather would you like to know?",
+        #             "action": "CLARIFY",
+        #             "data": {"missing": "location"}
+        #         }
+        # try:
+        #     weather_data = weather_engine.get_weather_report(location)
+        #     reply = ask_LLM.generate_response(json= weather_data, user_query= original_text)
+
+        #     return {"reply": reply, "action": "REPLY", "data": weather_data}
+        
+        # except Exception as e:
+        #     logger.error(f"Weather engine failed: {e}")
+        #     return {
+        #         "reply": f"I couldn't fetch the weather for {location} right now.",
+        #         "action": "ERROR", "data": {}
+        #     }
+
         location = entities.get("location")
-        if not location:
-            return {
-                "reply": "Which city's weather would you like to know?",
-                "action": "CLARIFY",
-                "data": {"missing": "location"}
-            }
-        try:
-            weather_data = weather_engine.get_weather_report(location)
-            reply = (
-                f"In {weather_data['city']}, it's currently {weather_data['temperature_c']} "
-                f"degrees Celsius, feels like {weather_data['feels_like_c']}. "
-                f"{weather_data['description'].capitalize()}."
-            )
-            return {"reply": reply, "action": "REPLY", "data": weather_data}
-        except Exception as e:
-            logger.error(f"Weather engine failed: {e}")
-            return {
-                "reply": f"I couldn't fetch the weather for {location} right now.",
-                "action": "ERROR", "data": {}
-            }
+        if location:
+            try:
+                weather_data = weather_engine.get_weather_report(location)
+                reply = ask_LLM.generate_response(json= weather_data, user_query= original_text)
+
+                return {"reply": reply, "action": "REPLY", "data": weather_data}
+
+            except Exception as e:
+                logger.error(f"Weather engine failed: {e}")
+                return {
+                    "reply": f"I couldn't fetch the weather for {location} right now.",
+                    "action": "ERROR", "data": {}
+                }
+
+        else:
+            latitude = user_location.get("latitude") if user_location else None
+            longitude = user_location.get("longitude") if user_location else None
+
+            if latitude and longitude:
+                weather_data = weather_engine.get_weather_by_coordinates(lat=latitude, lon=longitude)
+                reply = ask_LLM.generate_response(json=weather_data, user_query=original_text)
+
+                return {"reply": reply, "action": "REPLY", "data": weather_data} 
+
+            else:
+
+                return {
+                    "reply": "Which city's weather would you like to know?",
+                    "action": "CLARIFY",
+                    "data": {"missing": "location"}
+                }
 
     # -------- ROUTE (step-by-step) --------
     elif intent == "GET_ROUTE":
