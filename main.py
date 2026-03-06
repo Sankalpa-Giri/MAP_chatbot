@@ -7,7 +7,7 @@ import chatbot_brain
 import conversation_store
 from typing import Optional
 
-def handle_user_input(user_text: str,latitude: Optional[float] = None,longitude: Optional[float] = None,session_id: str = "default") -> dict:
+def handle_user_input(user_text: str, session_id: str, latitude: Optional[float] = None,longitude: Optional[float] = None) -> dict:
     """
     Orchestrates the full request → response pipeline.
 
@@ -22,12 +22,14 @@ def handle_user_input(user_text: str,latitude: Optional[float] = None,longitude:
     """
     try:
         # ── 1. NLU — intent + entity extraction ─────────────────────────────
-        analysis_result = nlu_engine.parse_intent(user_text)
+        analysis_result = nlu_engine.parse_intent(user_text, session_id=session_id)
 
         # Attach GPS coordinates if provided by client
         # These are not used by NLU — chatbot_brain uses them for routing
         if latitude is not None and longitude is not None:
             analysis_result["user_location"] = {"latitude": latitude, "longitude": longitude}
+
+        return analysis_result
 
         # ── 2. Chatbot brain — generates response based on intent ────────────
         bot_reply = chatbot_brain.get_bot_response(analysis_result, user_text, session_id=session_id)
@@ -66,8 +68,10 @@ def handle_user_input(user_text: str,latitude: Optional[float] = None,longitude:
             "error": str(e)
         }
     
+    
 import pprint
-
 if __name__ == "__main__":
-    result = handle_user_input(user_text="Whats the weather", latitude=20.353708, longitude=85.819925, session_id='2')
+    user_text = "where is my office"
+    result = handle_user_input(user_text=user_text, latitude=20.353708, longitude=85.819925, session_id='2')
+    print(user_text)
     pprint.pprint(result)

@@ -5,16 +5,18 @@ from langchain_core.prompts import ChatPromptTemplate
 import logging
 import conversation_store
 
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d - %(message)s',
+)
 logger = logging.getLogger(__name__)
 
 class Entities(BaseModel):
-    location: Optional[str] = None
     destination: Optional[str] = None
-    song: Optional[str] = None
-    contact: Optional[str] = None
 
 class NLUResult(BaseModel):
-    intent: str = Field(description="One of: GET_WEATHER, GET_ROUTE, GET_TRAFFIC, GET_ALTERNATE_ROUTE, GET_MUSIC, GET_PHONE, UNKNOWN")
+    intent: str = Field(description="One of: GET_WEATHER, GET_ROUTE, GET_TRAFFIC, GET_ALTERNATE_ROUTE, UNKNOWN")
     entities: Entities = Field(default_factory=lambda: Entities())
     confidence: float = Field(description="Confidence score from 0.0 to 1.0")
     assumptions: list[str] = Field(default_factory=list,description="Assumptions made e.g. missing_destination, default_location")
