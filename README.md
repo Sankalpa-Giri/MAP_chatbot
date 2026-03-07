@@ -37,7 +37,7 @@ Paste your respective API keys into each file.
 
 ## Flowchat
 
-<img width="1980" height="1500" alt="flowchat" src="https://github.com/user-attachments/assets/f368af03-666e-4826-9307-1050e795d3ce" />
+<img width="1500" height="1050" alt="flowchat" src="https://github.com/user-attachments/assets/f368af03-666e-4826-9307-1050e795d3ce" />
 
 ## 🤝 How to Collaborate
 To ensure we don't break each other's code, please follow these rules:
