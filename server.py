@@ -1,14 +1,12 @@
 '''
-FastAPI server. Run the command to start the server: uvicorn server:app --host 0.0.0.0 --port 8000
+FastAPI server. Run the command to start the server: uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 It has two Data models: ChatRequest and ChatResponse
 It has two end points: 
                     "/" - the home/root endpoint. Used to check status of server.
-                    "/voice" - API calling end point. It does not enforces any return format only return the main_reponse.
-                               Used to intereact with the server by request and response of messages.
+                    "/voice" - API calling end point. It does not enforce any return format, only returns the main_response.
+                               Used to interact with the server by request and response of messages.
                     "/docs" - Swagger UI of FastAPI. Used to test API calls.
-
 '''
-# server.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Annotated, Optional
@@ -22,14 +20,14 @@ app = FastAPI(title="Hey Shift")
 
 class ChatRequest(BaseModel):
     text: Annotated[str, Field(..., description="Text to be processed by the system")]
-    latitude: Optional[float] = Field(None, description="User's current latitude")
-    longitude: Optional[float] = Field(None, description="User's current longitude")
-    session_id: Annotated[str, Field(default="default", description="Stable ID per user/device session")]
+    latitude: Annotated[float,Field(None, description="User's current latitude")]
+    longitude: Annotated[float,Field(None, description="User's current longitude")]
+    session_id: str = Field(default="default", description="Stable ID per user/device session")
 
 class ChatResponse(BaseModel):
     reply: str = Field(..., description="Text response to return to the client")
     action: Optional[str] = None
-    metadata: Optional[dict] = None
+    data: Optional[dict] = None
 
 # ==========================================
 # ENDPOINTS
@@ -51,11 +49,10 @@ async def voice(request: ChatRequest):
         main_response = main.handle_user_input(user_text=text, latitude=request.latitude, longitude=request.longitude, session_id=request.session_id)
 
         # main.py guarantees a dict with at least {"reply": str}
-        # ChatResponse will validate and raise clearly if reply is missing
         return ChatResponse(
             reply=main_response.get("reply", "No response generated."),
             action=main_response.get("action"),
-            metadata=main_response.get("metadata")
+            data=main_response.get("data")
         )
 
     except Exception as e:

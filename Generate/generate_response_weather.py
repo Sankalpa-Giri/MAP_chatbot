@@ -2,12 +2,11 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import logging
-
+from config import MODEL
 logger = logging.getLogger(__name__)
 
-model = "llama3.1:8b"
 
-_llm = ChatOllama(model=model, temperature=0.4, num_predict=200)
+_llm = ChatOllama(model=MODEL, temperature=0.4, num_predict=100)
 
 prompt = ChatPromptTemplate.from_messages([
     ("system", """
@@ -85,13 +84,13 @@ Only use the JSON values provided.
 
 _chain = prompt | _llm | StrOutputParser()
 
-def generate_response(json: dict, user_query : str) -> str:
+def summarize(weather: dict, user_query : str) -> str:
     if not user_query or not user_query.strip():
         return "I didn't catch that."
     
     try:
         reply = _chain.invoke({
-            "json" : json,
+            "json" : weather,
             "user_query" : user_query
         })
         logger.info(f"Reply generated.")
@@ -117,4 +116,4 @@ if __name__ == "__main__":
  'temperature_c': 37,
  'wind_speed': 4.19}
     
-    print(generate_response(json=json, user_query="How is the weather"))
+    #print(generate_response(weather=json, user_query="How is the weather"))

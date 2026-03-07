@@ -10,21 +10,19 @@ class Turn:
     role: str           # "user" or "assistant"
     text: str
     intent: Optional[str] = None
-    resolved_location: Optional[str] = None  # last known destination/location
+    resolved_location: Optional[str] = None  # last known location
 
 @dataclass  
 class Session:
-    turns: deque = field(default_factory=lambda: deque(maxlen=10))  # last 10 turns
-    last_destination: Optional[str] = None
-    last_location: Optional[str] = None  # for weather context
+    turns: deque = field(default_factory=lambda: deque(maxlen=5))
+    last_location: Optional[str] = None
 
     def add_turn(self, role: str, text: str, intent: Optional[str] = None, location: Optional[str] = None):
         self.turns.append(Turn(role=role, text=text, intent=intent, resolved_location=location))
         # Track last known locations across turns
-        if location:
-            if intent in ("GET_ROUTE", "GET_TRAFFIC", "GET_ALTERNATE_ROUTE"):
-                self.last_destination = location
-            elif intent == "GET_WEATHER":
+        # Only update last_location if the location is "real"
+        if location and location.lower().strip() not in ["there", "here", "it"]:
+            if intent in ("GET_ROUTE", "GET_TRAFFIC", "GET_ALTERNATE_ROUTE", "GET_WEATHER"):
                 self.last_location = location
 
     def get_history_text(self) -> str:
