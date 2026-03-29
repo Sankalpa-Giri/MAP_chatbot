@@ -49,6 +49,9 @@ def memory_action(routeInfo: dict, text: str, session_id: str) -> dict:
                 "data": {}
             }
 
+        # FIX: guard missing destination before calling store_memory — without
+        # this, store_memory receives location=None, hits its own guard, and
+        # returns a reply string that isn't a proper dict, causing a crash on .get()
         destination = _extract_destination(entities, label)
         if not destination:
             return {
@@ -66,6 +69,9 @@ def memory_action(routeInfo: dict, text: str, session_id: str) -> dict:
 
     # ------------------------------------------------------------------
     elif intent == "UPDATE_ADDRESS":
+        # FIX: was completely empty — implemented using the same label + destination
+        # extraction pattern as SAVE_ADDRESS, then delegates to the new
+        # driver_rag.update_memory() which checks the entry exists before updating.
         label = _extract_label(text)
 
         if not label:
@@ -130,8 +136,27 @@ def memory_action(routeInfo: dict, text: str, session_id: str) -> dict:
                 "action": "ERROR",
                 "data": {}
             }
-        
-    # fallback — unknown or unhandled memory intent
+
+    # ------------------------------------------------------------------
+    elif intent == "DELETE_ADDRESS":
+        result = driver_rag.delete_memory(user_text=text)
+
+        # delete_memory returns None if the text didn't start with a trigger word
+        # (e.g. "remove my office" — neither "delete" nor "forget" prefix matched)
+        if result is None:
+            return {
+                "reply": "What would you like me to delete from memory?",
+                "action": "CLARIFY",
+                "data": {}
+            }
+
+        return {
+            "reply": result.get("reply", "Address deleted."),
+            "action": result.get("action", "REPLY"),
+            "data": result.get("data", {})
+        }
+
+    # ------------------------------------------------------------------
     else:
         logger.warning(f"memory_action: unhandled intent '{intent}'")
         return {
