@@ -392,3 +392,63 @@ def get_distance_duration(origin: str, destination: str) -> dict:
     except Exception as e:
         logger.error(f"get_distance_duration failed: {e}")
         return {"error": "MAPS_API_ERROR", "details": str(e)}
+
+def find_nearby(category: str, origin: str, limit: int = 3) -> dict:
+    """
+    Finds the nearest places matching a category keyword around the driver.
+    Used by discover_handler for FIND_NEARBY intent.
+
+    Uses rank_by="distance" so results are in strict proximity order —
+    the same strategy as _resolve_category but returns up to `limit` results
+    with richer detail (name, vicinity, distance estimate) rather than just
+    the top resolved address string.
+
+    Parameters:
+        category : place type keyword ("restaurant", "cafe", "food", etc.)
+        origin   : "lat,lon" string
+        limit    : max results to return (default 3)
+
+    Returns:
+        {
+            "places": [
+                {"name": str, "vicinity": str, "resolved": str},
+                ...
+            ],
+            "top": str   -- fully resolved address of the nearest result
+                           (ready to pass straight to navigation_handler)
+        }
+        or {"error": ...} on failure.
+    """
+    try:
+        lat_str, lon_str = origin.split(",")
+        lat, lon = float(lat_str.strip()), float(lon_str.strip())
+    except (ValueError, AttributeError):
+        return {"error": "INVALID_ORIGIN"}
+
+    cleaned = _strip_proximity(category)
+
+    try:
+        results = gmaps.places_nearby(  # type: ignore
+            location={"lat": lat, "lng": lon},
+            rank_by="distance",
+            keyword=cleaned
+        )
+        places_raw = results.get("results", [])
+        if not places_raw:
+            return {"error": "NO_PLACES_FOUND", "category": category}
+
+        places = []
+        for p in places_raw[:limit]:
+            name     = p.get("name", "")
+            vicinity = p.get("vicinity", "")
+            resolved = f"{name}, {vicinity}" if vicinity else name
+            places.append({"name": name, "vicinity": vicinity, "resolved": resolved})
+
+        return {
+            "places": places,
+            "top":    places[0]["resolved"]   # nearest — for immediate navigation
+        }
+
+    except Exception as e:
+        logger.error(f"find_nearby failed for '{category}': {e}")
+        return {"error": "MAPS_API_ERROR", "details": str(e)}
