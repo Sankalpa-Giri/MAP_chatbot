@@ -113,6 +113,35 @@ EXAMPLES:
     ("human", """Latest message: {user_input} """)
 ])
 
+_prompt_discover = ChatPromptTemplate.from_messages([
+    ("system", """You are an intent and entity parser.
+Analyze the user's message and extract the intent and the place category they want.
+ 
+INTENT:
+- FIND_NEARBY: user wants to discover or navigate to a nearby place of a category.
+  They have NOT named a specific place — they want the nearest match.
+ 
+EXTRACTION RULES:
+- Extract the place CATEGORY the user is looking for (e.g. "restaurant", "cafe",
+  "food", "petrol pump", "atm", "hospital", "park").
+- If no specific category is mentioned (e.g. "take me somewhere nice"), extract "restaurant"
+  as a sensible default — drivers usually want food or fuel.
+- Never output a specific place name — only the category word.
+- Never output the word "destination".
+ 
+EXAMPLES:
+"what's near me"                    -> intent: FIND_NEARBY, entity: "restaurant"
+"take me somewhere nice"             -> intent: FIND_NEARBY, entity: "restaurant"
+"bro I wanna grab food nearby"       -> intent: FIND_NEARBY, entity: "restaurant"
+"find a cafe around here"            -> intent: FIND_NEARBY, entity: "cafe"
+"any good restaurants near me"       -> intent: FIND_NEARBY, entity: "restaurant"
+"I need fuel"                        -> intent: FIND_NEARBY, entity: "petrol pump"
+"find me the nearest atm"            -> intent: FIND_NEARBY, entity: "atm"
+"is there a pharmacy near me"        -> intent: FIND_NEARBY, entity: "pharmacy"
+"""),
+    ("human", """Latest message: {user_input}""")
+])
+
 _prompt_chitchat = ChatPromptTemplate.from_messages([
     ("system", """You are an intent parser.
 Analyze the user's message and extract the intent.
@@ -136,11 +165,12 @@ def parse_intent(identify_domain: dict, text: str, session_id: str):
 
         # 1. Map Domain to correct Prompt
         domain_prompt_mapping = {
-            "DOMAIN_WEATHER": _prompt_weather,
-            "DOMAIN_NAVIGATION": _prompt_navigation,
-            "DOMAIN_TRAFFIC_STATUS": _prompt_traffic_status,
-            "DOMAIN_MEMORY": _prompt_memory,
-            "DOMAIN_CHITCHAT": _prompt_chitchat
+            "DOMAIN_WEATHER":       _prompt_weather,
+            "DOMAIN_NAVIGATION":    _prompt_navigation,
+            "DOMAIN_TRAFFIC_STATUS":_prompt_traffic_status,
+            "DOMAIN_MEMORY":        _prompt_memory,
+            "DOMAIN_DISCOVER":      _prompt_discover,
+            "DOMAIN_CHITCHAT":      _prompt_chitchat
         }
 
         selected_prompt = domain_prompt_mapping.get(domain)
