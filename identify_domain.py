@@ -54,6 +54,19 @@ DOMAIN_MEMORY
   - "what is my office address"
   - "where is my home"
   - "tell me my gym address"
+     
+DOMAIN_DISCOVER
+  The user wants to find nearby places of a category — food, cafes, hospitals, fuel, etc.
+  They have not named a specific destination. They want a suggestion or the nearest match.
+  Keywords: near me, nearby, around me, somewhere nice, grab food, find a, any good, closest
+  Examples:
+  - "what's near me"
+  - "take me somewhere nice"
+  - "bro I wanna grab food nearby"
+  - "find a cafe around here"
+  - "any good restaurants near me"
+  - "I need fuel"
+  - "find me the nearest atm"
 
 DOMAIN_CHITCHAT
   General conversation, greetings, jokes, or questions not related to navigation or weather.
